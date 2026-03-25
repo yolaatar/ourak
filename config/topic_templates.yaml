@@ -1,0 +1,172 @@
+# Pre-curated topic templates for common research areas.
+# The LLM selects and adjusts these based on the user's description,
+# rather than generating keywords from scratch.
+
+templates:
+  - name: axon-segmentation-em
+    description: "Automated segmentation of axons and myelin in electron microscopy"
+    include_any:
+      - axon segmentation
+      - myelin segmentation
+      - neurite segmentation
+      - synapse segmentation
+      - dendrite segmentation
+      - axon tracing
+      - neural circuit reconstruction
+      - connectome reconstruction
+      - FIB-SEM
+      - SBEM
+      - serial block-face
+      - serial section electron microscopy
+      - volume electron microscopy
+      - EM segmentation
+      - electron microscopy segmentation
+      - instance segmentation neuron
+      - automated segmentation connectomics
+      - connectomics
+      - myelinated axon
+      - axon diameter
+      - g-ratio
+    include_all:
+      - segmentation
+      - electron microscopy
+    exclude:
+      - clinical trial
+      - stroke
+      - tractography
+      - Alzheimer
+      - dementia
+      - tumor
+      - glioma
+      - retina
+      - cardiac
+      - seismic
+      - alloy
+      - semiconductor
+    boost_venues:
+      - Nature Methods
+      - Nature Neuroscience
+      - eLife
+      - MICCAI
+      - Medical Image Analysis
+
+  - name: deep-learning-microscopy
+    description: "Deep learning methods applied to microscopy image analysis"
+    include_any:
+      - microscopy segmentation
+      - cell segmentation
+      - nucleus segmentation
+      - histology segmentation
+      - fluorescence microscopy
+      - confocal microscopy
+      - light sheet microscopy
+      - super-resolution microscopy
+      - nnU-Net
+      - cellpose
+      - stardist
+      - whole-slide image
+      - digital pathology
+      - bioimage analysis
+    include_all:
+      - deep learning
+      - microscopy
+    exclude:
+      - clinical trial
+      - natural language processing
+      - speech recognition
+      - autonomous driving
+      - robotics
+    boost_venues:
+      - Nature Methods
+      - MICCAI
+      - Medical Image Analysis
+
+  - name: connectomics-neuroscience
+    description: "Brain connectomics, circuit mapping, and neural architecture"
+    include_any:
+      - connectomics
+      - connectome
+      - neural circuit
+      - synaptic connectivity
+      - brain circuit mapping
+      - electron microscopy brain
+      - serial section TEM
+      - FIB-SEM brain
+      - neuronal morphology
+      - dendritic arbor
+      - axonal projection
+      - neuron reconstruction
+      - circuit tracing
+      - brain atlas
+    include_all:
+      - connectom
+      - neuron
+    exclude:
+      - clinical trial
+      - fMRI resting state
+      - genomics
+      - proteomics
+      - drug discovery
+    boost_venues:
+      - Nature Neuroscience
+      - Neuron
+      - Cell
+      - eLife
+      - Current Biology
+
+  - name: foundation-models-biomedical
+    description: "Foundation models and self-supervised learning for biomedical imaging"
+    include_any:
+      - foundation model medical imaging
+      - biomedical foundation model
+      - self-supervised microscopy
+      - pretrained model pathology
+      - vision transformer medical
+      - transfer learning histology
+      - contrastive learning biomedical
+      - masked autoencoder medical
+      - few-shot medical imaging
+      - domain adaptation microscopy
+    include_all:
+      - biomedical
+      - foundation model
+    exclude:
+      - natural language processing
+      - speech recognition
+      - autonomous driving
+      - recommendation system
+      - financial
+    boost_venues:
+      - MICCAI
+      - Medical Image Analysis
+      - Nature Methods
+      - IEEE Transactions on Medical Imaging
+
+  - name: myelin-quantification
+    description: "Myelin measurement, g-ratio analysis, and white matter microstructure"
+    include_any:
+      - g-ratio
+      - myelin thickness
+      - myelin water fraction
+      - axon diameter measurement
+      - myelin quantification
+      - myelin volume fraction
+      - white matter microstructure
+      - axon morphometry
+      - nerve fiber analysis
+      - myelin sheath measurement
+      - electron microscopy myelin
+      - axon caliber
+    include_all:
+      - myelin
+    exclude:
+      - clinical trial
+      - Alzheimer
+      - tumor
+      - genomics
+      - drug delivery
+    boost_venues:
+      - NeuroImage
+      - Magnetic Resonance in Medicine
+      - Nature Neuroscience
+      - eLife

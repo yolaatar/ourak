@@ -1,0 +1,13 @@
+pydantic>=2.0
+requests
+PyYAML
+python-dateutil
+rapidfuzz
+anthropic
+python-dotenv
+sqlmodel
+pytest
+fastapi
+uvicorn
+python-jose[cryptography]
+httpx

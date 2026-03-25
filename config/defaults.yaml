@@ -1,0 +1,5 @@
+days_back: 30
+max_results_per_source: 50
+top_k: 12
+summarize: true
+delivery: console

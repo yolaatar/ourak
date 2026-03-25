@@ -1,0 +1,79 @@
+topics:
+  - name: axon-segmentation-em
+    include_any:
+      # Core task — highly specific compound phrases
+      - axon segmentation
+      - myelin segmentation
+      - neurite segmentation
+      - synapse segmentation
+      - dendrite segmentation
+      - axon tracing
+      - neural circuit reconstruction
+      - connectome reconstruction
+      # EM modalities — specific enough to imply neural tissue context
+      - FIB-SEM
+      - SBEM
+      - serial block-face
+      - serial section electron microscopy
+      - volume electron microscopy
+      # AI + EM intersection
+      - EM segmentation
+      - electron microscopy segmentation
+      - instance segmentation neuron
+      - automated segmentation connectomics
+      # Domain keywords
+      - connectomics
+      - myelinated axon
+      - axon diameter
+      - g-ratio
+    include_all: []
+    exclude:
+      # Clinical / MRI noise
+      - MRI
+      - fMRI
+      - " CT "
+      - clinical trial
+      - stroke
+      - radiosurgery
+      - tractography
+      - white matter lesion
+      - white matter hyperintens
+      - Alzheimer
+      - dementia
+      - Parkinson
+      - epilepsy
+      - carotid
+      - tumor
+      - glioma
+      - cancer
+      - biopsy
+      - patholog
+      # Non-neural biology
+      - retina
+      - retinal
+      - plant
+      - cardiac
+      - ecg
+      - electrocardiogram
+      - liver
+      - kidney
+      - lung
+      - skin lesion
+      # Non-biological EM
+      - seismic
+      - alloy
+      - aluminium
+      - carbon black
+      - methane
+      - material science
+      - semiconductor
+    boost_authors: []
+    boost_venues:
+      - Nature Methods
+      - Nature Neuroscience
+      - eLife
+      - MICCAI
+      - Medical Image Analysis
+      - IEEE Transactions on Medical Imaging
+      - Neuron
+      - Cell
