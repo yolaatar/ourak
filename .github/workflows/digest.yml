@@ -22,7 +22,6 @@ jobs:
 
       - name: Run paper-watch
         env:
-          NCBI_API_KEY: ${{ secrets.NCBI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           EMAIL_SMTP_HOST: ${{ secrets.EMAIL_SMTP_HOST }}

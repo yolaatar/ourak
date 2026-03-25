@@ -110,7 +110,10 @@ def submit_feedback(
     body: FeedbackRequest,
     session: Session = Depends(get_session),
 ) -> dict:
-    """Upsert feedback (one signal per user per paper)."""
+    """Upsert or remove feedback (one signal per user per paper).
+
+    Send signal="remove" to delete existing feedback.
+    """
     paper = session.get(PaperDB, paper_id)
     if not paper:
         raise HTTPException(status_code=404, detail="Paper not found")
@@ -121,6 +124,12 @@ def submit_feedback(
             Feedback.paper_id == paper_id,
         )
     ).first()
+
+    if body.signal == "remove":
+        if existing:
+            session.delete(existing)
+            session.commit()
+        return {"paper_id": paper_id, "user_id": body.user_id, "signal": None}
 
     if existing:
         existing.signal = body.signal

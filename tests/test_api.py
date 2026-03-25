@@ -47,15 +47,15 @@ def seeded_client(client):
         session.add(sub)
 
         paper = PaperDB(
-            source="pubmed",
-            source_id="pubmed:12345",
+            source="arxiv",
+            source_id="arxiv:2603.12345",
             title="Axon Segmentation in EM",
             abstract="A deep learning method for axon segmentation.",
             authors=json.dumps(["Smith J", "Doe A"]),
             published_date="2026-03-20",
             journal="Nature Methods",
             score=15.0,
-            url="https://pubmed.ncbi.nlm.nih.gov/12345/",
+            url="https://arxiv.org/abs/2603.12345",
         )
         session.add(paper)
         session.commit()
@@ -111,7 +111,7 @@ def test_get_papers_with_topic_filter(seeded_client):
 def test_get_paper_by_id(seeded_client):
     resp = seeded_client.get("/papers/1")
     assert resp.status_code == 200
-    assert resp.json()["source_id"] == "pubmed:12345"
+    assert resp.json()["source_id"] == "arxiv:2603.12345"
 
 
 def test_get_paper_not_found(client):
@@ -224,7 +224,7 @@ def test_complete_onboarding(client):
     """Should create user, topics, and save feedback."""
     fake_papers = [
         Paper(
-            source="pubmed", source_id="pubmed:99",
+            source="arxiv", source_id="arxiv:99",
             title="Test paper",
             abstract="Abstract",
             authors=["A"],
@@ -237,7 +237,7 @@ def test_complete_onboarding(client):
             "user_name": "Bob",
             "user_email": "bob@lab.org",
             "topics": [{"name": "test", "include_any": ["segmentation"], "include_all": [], "exclude": [], "boost_authors": [], "boost_venues": []}],
-            "feedback": [{"source_id": "pubmed:99", "signal": "upvote"}],
+            "feedback": [{"source_id": "arxiv:99", "signal": "upvote"}],
         })
     assert resp.status_code == 200
     data = resp.json()

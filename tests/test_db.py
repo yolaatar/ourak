@@ -81,8 +81,8 @@ def test_create_topic(db_session):
 def test_create_paper(db_session):
     from app.db import PaperDB
     paper = PaperDB(
-        source="pubmed",
-        source_id="pubmed:12345",
+        source="arxiv",
+        source_id="arxiv:12345",
         title="Test Paper",
         abstract="An abstract.",
         authors=json.dumps(["Smith J", "Doe A"]),
@@ -98,9 +98,9 @@ def test_create_paper(db_session):
 
 def test_paper_source_id_unique(db_session):
     from app.db import PaperDB
-    db_session.add(PaperDB(source="pubmed", source_id="pubmed:1", title="A"))
+    db_session.add(PaperDB(source="arxiv", source_id="arxiv:1", title="A"))
     db_session.commit()
-    db_session.add(PaperDB(source="arxiv", source_id="pubmed:1", title="B"))
+    db_session.add(PaperDB(source="arxiv", source_id="arxiv:1", title="B"))
     with pytest.raises(Exception):
         db_session.commit()
 
@@ -135,7 +135,7 @@ def test_user_topic_subscription(db_session):
 def test_create_feedback(db_session):
     from app.db import UserDB, PaperDB, Feedback
     user = UserDB(name="Alice", email="alice@lab.org")
-    paper = PaperDB(source="pubmed", source_id="pubmed:1", title="Paper")
+    paper = PaperDB(source="arxiv", source_id="arxiv:1", title="Paper")
     db_session.add(user)
     db_session.add(paper)
     db_session.commit()
@@ -154,35 +154,35 @@ def test_create_feedback(db_session):
 
 def test_is_seen(db_session):
     from app.db import PaperDB, is_seen
-    assert is_seen(db_session, "pubmed:999") is False
-    db_session.add(PaperDB(source="pubmed", source_id="pubmed:999", title="X"))
+    assert is_seen(db_session, "arxiv:999") is False
+    db_session.add(PaperDB(source="arxiv", source_id="arxiv:999", title="X"))
     db_session.commit()
-    assert is_seen(db_session, "pubmed:999") is True
+    assert is_seen(db_session, "arxiv:999") is True
 
 
 def test_get_unseen_papers(db_session):
     from app.db import PaperDB, get_unseen_papers
     # Pre-seed one seen paper
-    db_session.add(PaperDB(source="pubmed", source_id="pubmed:1", title="Seen"))
+    db_session.add(PaperDB(source="arxiv", source_id="arxiv:1", title="Seen"))
     db_session.commit()
 
     papers = [
-        Paper(source="pubmed", source_id="pubmed:1", title="Seen"),
-        Paper(source="pubmed", source_id="pubmed:2", title="Unseen"),
+        Paper(source="arxiv", source_id="arxiv:1", title="Seen"),
+        Paper(source="arxiv", source_id="arxiv:2", title="Unseen"),
     ]
     unseen = get_unseen_papers(db_session, papers)
     assert len(unseen) == 1
-    assert unseen[0].source_id == "pubmed:2"
+    assert unseen[0].source_id == "arxiv:2"
 
 
 def test_mark_seen(db_session):
     from app.db import mark_seen, is_seen
     papers = [
-        Paper(source="pubmed", source_id="pubmed:10", title="A"),
+        Paper(source="arxiv", source_id="arxiv:10", title="A"),
         Paper(source="arxiv", source_id="arxiv:20", title="B", alt_ids=["s2:30"]),
     ]
     mark_seen(db_session, papers)
-    assert is_seen(db_session, "pubmed:10") is True
+    assert is_seen(db_session, "arxiv:10") is True
     assert is_seen(db_session, "arxiv:20") is True
     # alt_ids should also be marked
     assert is_seen(db_session, "s2:30") is True
@@ -191,6 +191,6 @@ def test_mark_seen(db_session):
 def test_mark_seen_idempotent(db_session):
     """Marking a paper seen twice should not raise."""
     from app.db import mark_seen
-    papers = [Paper(source="pubmed", source_id="pubmed:10", title="A")]
+    papers = [Paper(source="arxiv", source_id="arxiv:10", title="A")]
     mark_seen(db_session, papers)
     mark_seen(db_session, papers)  # should not raise

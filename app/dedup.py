@@ -1,7 +1,7 @@
 """Cross-source deduplication for research papers.
 
 Strategy (two passes):
-  1. Exact DOI match  — most reliable; handles PubMed ↔ arXiv ↔ S2 overlaps.
+  1. Exact DOI match  — most reliable; handles arXiv ↔ S2 overlaps.
   2. Fuzzy title match — catches papers without a DOI using rapidfuzz ratio ≥ 92.
 
 When duplicates are merged the richer record wins field-by-field, and all
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Source priority for choosing the "primary" record when merging.
 # Lower index = higher priority.
-_SOURCE_PRIORITY = ["pubmed", "semantic_scholar", "arxiv"]
+_SOURCE_PRIORITY = ["semantic_scholar", "arxiv", "biorxiv"]
 _TITLE_SIMILARITY_THRESHOLD = 92  # percent
 
 

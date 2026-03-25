@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getPapers, getTopics, submitFeedback } from "../api";
+import { getPapers, getTopics } from "../api";
 import Header from "../components/Header";
 import PaperCard from "../components/PaperCard";
 import styles from "./Digest.module.css";
@@ -15,7 +15,6 @@ export default function Digest() {
   const [activeTopic, setActiveTopic] = useState(null);
   const [sortBy, setSortBy] = useState("score");
   const [activeSource, setActiveSource] = useState(null);
-  const [feedbackMap, setFeedbackMap] = useState({});
   const [loading, setLoading] = useState(true);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
@@ -59,15 +58,6 @@ export default function Digest() {
       }
       setHasMore(data.length === PAGE_SIZE);
       setOffset(newOffset + data.length);
-
-      // Extract existing feedback signals
-      const fbMap = {};
-      for (const p of data) {
-        if (p.feedback_signal) {
-          fbMap[p.source_id] = p.feedback_signal;
-        }
-      }
-      setFeedbackMap((prev) => ({ ...prev, ...fbMap }));
     } catch (err) {
       console.error("Failed to load papers:", err);
     } finally {
@@ -93,30 +83,6 @@ export default function Digest() {
     setActiveSource(next);
     setOffset(0);
     loadPapers(0, activeTopic, sortBy, next);
-  }
-
-  async function handleFeedback(paper, signal) {
-    const prev = feedbackMap[paper.source_id];
-    const newSignal = prev === signal ? null : signal;
-
-    setFeedbackMap((m) => {
-      const next = { ...m };
-      if (newSignal) {
-        next[paper.source_id] = newSignal;
-      } else {
-        delete next[paper.source_id];
-      }
-      return next;
-    });
-
-    if (newSignal && paper.id) {
-      try {
-        await submitFeedback(paper.id, userId, newSignal);
-      } catch {
-        // revert on error
-        setFeedbackMap((m) => ({ ...m, [paper.source_id]: prev }));
-      }
-    }
   }
 
   return (
@@ -204,9 +170,7 @@ export default function Digest() {
                 <PaperCard
                   key={paper.source_id}
                   paper={paper}
-                  showFeedback
-                  activeSignal={feedbackMap[paper.source_id]}
-                  onFeedback={handleFeedback}
+                  showFeedback={false}
                 />
               ))}
             </div>

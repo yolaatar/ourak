@@ -29,7 +29,6 @@ from app.scoring import score_paper, score_papers
 from app.sources.arxiv import fetch_arxiv
 from app.sources.biorxiv import fetch_biorxiv
 from app.sources.paperswithcode import fetch_paperswithcode
-from app.sources.pubmed import fetch_pubmed
 from app.sources.semantic_scholar import fetch_semantic_scholar
 
 logger = logging.getLogger(__name__)
@@ -117,7 +116,6 @@ def _call_llm(prompt: str) -> str:
 
 
 _FETCHER_NAMES = [
-    ("PubMed", "fetch_pubmed"),
     ("arXiv", "fetch_arxiv"),
     ("Semantic Scholar", "fetch_semantic_scholar"),
     ("bioRxiv", "fetch_biorxiv"),
@@ -127,7 +125,6 @@ _FETCHER_NAMES = [
 # Per-source max_results for calibration (relevance mode).
 # S2 and arXiv have the best relevance ranking for computational papers.
 _CALIBRATION_LIMITS = {
-    "PubMed": 0,
     "arXiv": 20,
     "Semantic Scholar": 30,
     "bioRxiv": 5,
@@ -210,6 +207,35 @@ def _load_templates() -> str:
             return f.read()
     except FileNotFoundError:
         return "(no templates available)"
+
+
+def _load_templates_parsed() -> list[dict]:
+    """Load topic templates as parsed dicts."""
+    templates_path = os.path.join(os.path.dirname(__file__), "..", "..", "config", "topic_templates.yaml")
+    try:
+        with open(templates_path) as f:
+            data = yaml.safe_load(f)
+        return data.get("templates", []) if isinstance(data, dict) else []
+    except FileNotFoundError:
+        return []
+
+
+@router.get("/presets")
+def get_presets() -> dict:
+    """Return available topic presets from templates."""
+    templates = _load_templates_parsed()
+    presets = []
+    for t in templates:
+        presets.append({
+            "name": t.get("name", ""),
+            "description": t.get("description", ""),
+            "include_any": t.get("include_any", []),
+            "include_all": t.get("include_all", []),
+            "exclude": t.get("exclude", []),
+            "boost_authors": t.get("boost_authors", []),
+            "boost_venues": t.get("boost_venues", []),
+        })
+    return {"presets": presets}
 
 
 @router.post("/generate-topics")
@@ -347,21 +373,48 @@ def run_first_pass(body: FirstPassRequest):
                 )
             ]
 
-        # Score each paper against its best-matching topic
+        # Score each paper against its best-matching topic and track assignment
+        topic_buckets: dict[str, list[Paper]] = {t.name: [] for t in topics}
         for paper in all_papers:
             best_score = 0.0
+            best_topic = topics[0].name
             for topic in topics:
                 s = score_paper(paper, topic, use_recency=False)
                 if s > best_score:
                     best_score = s
+                    best_topic = topic.name
             paper.score = best_score
+            topic_buckets[best_topic].append(paper)
 
-        scored = all_papers
-        scored.sort(key=lambda p: p.score, reverse=True)
-        sample = scored[:10]
+        # Sort each bucket by score
+        for name in topic_buckets:
+            topic_buckets[name].sort(key=lambda p: p.score, reverse=True)
+
+        # Round-robin pick from each topic to ensure fair representation
+        n_topics = len(topics)
+        per_topic = max(2, 10 // n_topics)
+        sample: list[Paper] = []
+        seen_ids: set[str] = set()
+        # First pass: take top per_topic from each bucket
+        for name in topic_buckets:
+            for paper in topic_buckets[name][:per_topic]:
+                if paper.source_id not in seen_ids:
+                    sample.append(paper)
+                    seen_ids.add(paper.source_id)
+        # Fill remaining slots from all papers by score
+        if len(sample) < 10:
+            all_sorted = sorted(all_papers, key=lambda p: p.score, reverse=True)
+            for paper in all_sorted:
+                if paper.source_id not in seen_ids:
+                    sample.append(paper)
+                    seen_ids.add(paper.source_id)
+                if len(sample) >= 10:
+                    break
+        # Final sort by score for display
+        sample.sort(key=lambda p: p.score, reverse=True)
 
         # Save run to log for analysis
-        _save_run_log(body, topics, scored, sample)
+        _save_run_log(body, topics, all_papers, sample)
 
         q.put(_sse_event({
             "type": "results",

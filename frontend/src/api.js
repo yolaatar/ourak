@@ -28,6 +28,10 @@ export function logout() {
   return request("/auth/logout");
 }
 
+export function getPresets() {
+  return request("/onboarding/presets");
+}
+
 export function generateTopics(description, seedAbstracts) {
   return request("/onboarding/generate-topics", {
     method: "POST",

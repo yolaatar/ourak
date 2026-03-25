@@ -16,7 +16,7 @@ Research paper discovery tool for biomedical AI labs. Aggregates papers from mul
 
 - **Backend:** Python, FastAPI, SQLModel (SQLite), OpenRouter LLM
 - **Frontend:** React 18, Vite, CSS Modules (dark theme)
-- **Sources:** PubMed, arXiv, Semantic Scholar, bioRxiv, Papers With Code
+- **Sources:** arXiv, Semantic Scholar, bioRxiv, Papers With Code
 
 ## Setup
 
@@ -38,7 +38,6 @@ npm run dev
 | Variable | Required | Description |
 |---|---|---|
 | `OPENROUTER_API_KEY` | Yes | LLM for topic generation during onboarding |
-| `NCBI_API_KEY` | No | PubMed API (higher rate limits) |
 | `S2_API_KEY` | No | Semantic Scholar API (higher rate limits) |
 | `APP_SECRET` | No | Auth token signing (defaults to dev key) |
 
@@ -46,7 +45,7 @@ npm run dev
 
 ```
 app/                  Core domain logic
-  sources/            Paper fetchers (arxiv, biorxiv, pubmed, s2, pwc)
+  sources/            Paper fetchers (arxiv, biorxiv, s2, pwc)
   db.py               SQLite tables + helpers
   models.py           Pydantic models (Paper, Topic)
   scoring.py          Keyword scoring engine

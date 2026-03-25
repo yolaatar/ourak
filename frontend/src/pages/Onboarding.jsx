@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { generateTopics, runFirstPass, completeOnboarding } from "../api";
+import { getPresets, generateTopics, runFirstPass, completeOnboarding } from "../api";
 import PaperCard from "../components/PaperCard";
 import styles from "./Onboarding.module.css";
 
@@ -55,6 +55,9 @@ function TagEditor({ tags, onChange, type = "include" }) {
 // ── Step 1: Welcome ──
 
 function StepWelcome({ onNext }) {
+  const [presets, setPresets] = useState([]);
+  const [selectedPresets, setSelectedPresets] = useState(new Set());
+  const [mode, setMode] = useState(null); // null | "presets" | "describe"
   const [description, setDescription] = useState("");
   const [abstracts, setAbstracts] = useState([]);
   const [showAbstracts, setShowAbstracts] = useState(false);
@@ -62,6 +65,38 @@ function StepWelcome({ onNext }) {
   const [userEmail, setUserEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    getPresets()
+      .then((data) => setPresets(data.presets || []))
+      .catch(() => {});
+  }, []);
+
+  function togglePreset(name) {
+    setSelectedPresets((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) {
+        next.delete(name);
+      } else {
+        next.add(name);
+      }
+      return next;
+    });
+  }
+
+  function handleUsePresets() {
+    if (!userName.trim() || !userEmail.trim() || selectedPresets.size === 0) return;
+    const topics = presets
+      .filter((p) => selectedPresets.has(p.name))
+      .map(({ description: _, ...rest }) => rest);
+    onNext({
+      topics,
+      description: "",
+      userName,
+      userEmail,
+      seedAbstracts: [],
+    });
+  }
 
   async function handleGenerate() {
     if (!description.trim() || !userName.trim() || !userEmail.trim()) return;
@@ -87,7 +122,7 @@ function StepWelcome({ onNext }) {
     <>
       <h1 className={styles.title}>Set up your research feed</h1>
       <p className={styles.subtitle}>
-        Describe your research and we'll configure a paper feed for you.
+        Pick from ready-made topic presets or describe your research to generate custom ones.
       </p>
 
       <div className={styles.inlineFields}>
@@ -112,69 +147,124 @@ function StepWelcome({ onNext }) {
         </div>
       </div>
 
-      <div className={styles.fieldGroup}>
-        <label className={styles.label}>Describe your research</label>
-        <textarea
-          className={styles.textarea}
-          placeholder="e.g. I work on automated segmentation of myelinated axons in serial block-face electron microscopy (SBEM) volumes. We use deep learning methods like nnU-Net and are interested in connectomics and myelin quantification."
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
+      {/* Mode selector */}
+      <div className={styles.modeSelector}>
+        <button
+          className={styles.modeBtn}
+          data-active={mode === "presets"}
+          onClick={() => setMode("presets")}
+        >
+          Choose from presets
+        </button>
+        <button
+          className={styles.modeBtn}
+          data-active={mode === "describe"}
+          onClick={() => setMode("describe")}
+        >
+          Describe my research
+        </button>
       </div>
 
-      {!showAbstracts && (
-        <button
-          className={styles.abstractToggle}
-          onClick={() => setShowAbstracts(true)}
-        >
-          + Add seed paper abstracts (optional)
-        </button>
+      {/* Preset selection */}
+      {mode === "presets" && (
+        <div className={styles.presetSection}>
+          <label className={styles.label}>Select topics</label>
+          <div className={styles.presetGrid}>
+            {presets.map((p) => (
+              <button
+                key={p.name}
+                className={styles.presetCard}
+                data-selected={selectedPresets.has(p.name)}
+                onClick={() => togglePreset(p.name)}
+              >
+                <span className={styles.presetName}>{p.name}</span>
+                <span className={styles.presetDesc}>{p.description}</span>
+                <span className={styles.presetKeywords}>
+                  {p.include_any.slice(0, 5).join(", ")}
+                  {p.include_any.length > 5 && ` +${p.include_any.length - 5} more`}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <button
+            className={styles.primaryBtn}
+            onClick={handleUsePresets}
+            disabled={selectedPresets.size === 0 || !userName.trim() || !userEmail.trim()}
+          >
+            Use {selectedPresets.size} selected topic{selectedPresets.size !== 1 ? "s" : ""}
+          </button>
+        </div>
       )}
 
-      {showAbstracts &&
-        [0, 1, 2].map((i) => (
-          <div key={i} className={styles.abstractSlot}>
-            <div className={styles.abstractHeader}>
-              <label className={styles.label}>Abstract {i + 1}</label>
-              {abstracts[i] && (
-                <button
-                  className={styles.removeBtn}
-                  onClick={() => {
-                    const next = [...abstracts];
-                    next[i] = "";
-                    setAbstracts(next);
-                  }}
-                >
-                  clear
-                </button>
-              )}
-            </div>
+      {/* Description mode */}
+      {mode === "describe" && (
+        <>
+          <div className={styles.fieldGroup}>
+            <label className={styles.label}>Describe your research</label>
             <textarea
-              className={styles.textareaSmall}
-              placeholder="Paste an abstract from a paper you find relevant..."
-              value={abstracts[i] || ""}
-              onChange={(e) => {
-                const next = [...abstracts];
-                next[i] = e.target.value;
-                setAbstracts(next);
-              }}
+              className={styles.textarea}
+              placeholder="e.g. I work on automated segmentation of myelinated axons in serial block-face electron microscopy (SBEM) volumes. We use deep learning methods like nnU-Net and are interested in connectomics and myelin quantification."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
             />
           </div>
-        ))}
 
-      {error && (
-        <p className={styles.error}>
-          {error} — press the button below to try again.
-        </p>
+          {!showAbstracts && (
+            <button
+              className={styles.abstractToggle}
+              onClick={() => setShowAbstracts(true)}
+            >
+              + Add seed paper abstracts (optional)
+            </button>
+          )}
+
+          {showAbstracts &&
+            [0, 1, 2].map((i) => (
+              <div key={i} className={styles.abstractSlot}>
+                <div className={styles.abstractHeader}>
+                  <label className={styles.label}>Abstract {i + 1}</label>
+                  {abstracts[i] && (
+                    <button
+                      className={styles.removeBtn}
+                      onClick={() => {
+                        const next = [...abstracts];
+                        next[i] = "";
+                        setAbstracts(next);
+                      }}
+                    >
+                      clear
+                    </button>
+                  )}
+                </div>
+                <textarea
+                  className={styles.textareaSmall}
+                  placeholder="Paste an abstract from a paper you find relevant..."
+                  value={abstracts[i] || ""}
+                  onChange={(e) => {
+                    const next = [...abstracts];
+                    next[i] = e.target.value;
+                    setAbstracts(next);
+                  }}
+                />
+              </div>
+            ))}
+
+          {error && (
+            <p className={styles.error}>
+              {error} — press the button below to try again.
+            </p>
+          )}
+
+          <button
+            className={styles.primaryBtn}
+            onClick={handleGenerate}
+            disabled={loading || !description.trim() || !userName.trim() || !userEmail.trim()}
+          >
+            {loading ? "Generating topics..." : error ? "Try again" : "Generate my topics"}
+          </button>
+        </>
       )}
-
-      <button
-        className={styles.primaryBtn}
-        onClick={handleGenerate}
-        disabled={loading || !description.trim() || !userName.trim() || !userEmail.trim()}
-      >
-        {loading ? "Generating topics..." : error ? "Try again" : "Generate my topics"}
-      </button>
     </>
   );
 }
@@ -230,7 +320,7 @@ function StepReviewTopics({ topics, onChange, onNext }) {
   }
 
   if (loading) {
-    const sources = ["PubMed", "arXiv", "Semantic Scholar", "bioRxiv", "Papers With Code"];
+    const sources = ["arXiv", "Semantic Scholar", "bioRxiv", "Papers With Code"];
     const allKeys = topics.flatMap((t) =>
       sources.map((s) => ({ key: `${s} — ${t.name}`, source: s, topic: t.name }))
     );
@@ -331,7 +421,7 @@ function StepReviewTopics({ topics, onChange, onNext }) {
 
 // ── Step 3: Rate papers ──
 
-function StepRatePapers({ papers, feedback, onFeedback, onNext }) {
+function StepRatePapers({ papers, feedback, onFeedback, onNext, loading }) {
   const ratedCount = Object.keys(feedback).length;
   const minRatings = Math.min(5, papers.length);
 
@@ -358,9 +448,9 @@ function StepRatePapers({ papers, feedback, onFeedback, onNext }) {
       <button
         className={styles.primaryBtn}
         onClick={onNext}
-        disabled={ratedCount < minRatings}
+        disabled={ratedCount < minRatings || loading}
       >
-        Refine my feed
+        {loading ? "Saving your preferences..." : "Refine my feed"}
       </button>
     </>
   );
@@ -494,6 +584,7 @@ export default function Onboarding() {
           feedback={feedback}
           onFeedback={handleFeedback}
           onNext={handleRefine}
+          loading={loading}
         />
       )}
 

@@ -28,6 +28,3 @@ def load_env(env_path: str = ".env") -> None:
     load_dotenv(dotenv_path=env_path, override=False)
 
 
-def get_ncbi_api_key() -> str | None:
-    """Return the NCBI API key from the environment, if set."""
-    return os.getenv("NCBI_API_KEY") or None

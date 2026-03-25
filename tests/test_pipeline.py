@@ -23,12 +23,11 @@ def _fake_papers(source: str, n: int = 3) -> list[Paper]:
 
 @patch("app.sources.paperswithcode.fetch_paperswithcode", return_value=_fake_papers("pwc", 2))
 @patch("app.sources.biorxiv.fetch_biorxiv", return_value=_fake_papers("biorxiv", 2))
-@patch("app.sources.semantic_scholar.fetch_semantic_scholar", return_value=[])
+@patch("app.sources.semantic_scholar.fetch_semantic_scholar", return_value=_fake_papers("semantic_scholar", 2))
 @patch("app.sources.arxiv.fetch_arxiv", return_value=_fake_papers("arxiv", 2))
-@patch("app.sources.pubmed.fetch_pubmed", return_value=_fake_papers("pubmed", 2))
 @patch("app.llm.summarize_papers", return_value={})
-def test_full_pipeline(mock_llm, mock_pm, mock_ax, mock_s2, mock_bio, mock_pwc):
-    """Pipeline runs end-to-end with all 5 sources, DB storage, and digest output."""
+def test_full_pipeline(mock_llm, mock_ax, mock_s2, mock_bio, mock_pwc):
+    """Pipeline runs end-to-end with all sources, DB storage, and digest output."""
     from app.config import load_config
     from app.db import init_db, is_seen
 
@@ -43,8 +42,8 @@ def test_full_pipeline(mock_llm, mock_pm, mock_ax, mock_s2, mock_bio, mock_pwc):
 
     # Verify papers were persisted
     with Session(engine) as session:
-        assert is_seen(session, "pubmed:0") is True
         assert is_seen(session, "arxiv:0") is True
+        assert is_seen(session, "semantic_scholar:0") is True
         assert is_seen(session, "biorxiv:0") is True
         assert is_seen(session, "pwc:0") is True
 

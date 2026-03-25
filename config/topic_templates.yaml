@@ -3,52 +3,104 @@
 # rather than generating keywords from scratch.
 
 templates:
-  - name: axon-segmentation-em
-    description: "Automated segmentation of axons and myelin in electron microscopy"
+  - name: axon-myelin-segmentation
+    description: "Automated segmentation of axons and myelin in microscopy"
     include_any:
       - axon segmentation
       - myelin segmentation
+      - myelinated axon
+      - axon and myelin
+      - AxonDeepSeg
+      - DeepACSON
+      - white matter segmentation
+      - nerve fiber segmentation
+      - myelin sheath
+      - histology segmentation
+      - electron microscopy segmentation
+      - SBEM segmentation
+      - instance segmentation white matter
+      - multi-domain segmentation microscopy
+      - axon morphometry
       - neurite segmentation
-      - synapse segmentation
-      - dendrite segmentation
-      - axon tracing
-      - neural circuit reconstruction
-      - connectome reconstruction
       - FIB-SEM
       - SBEM
       - serial block-face
-      - serial section electron microscopy
       - volume electron microscopy
       - EM segmentation
-      - electron microscopy segmentation
-      - instance segmentation neuron
-      - automated segmentation connectomics
       - connectomics
-      - myelinated axon
       - axon diameter
-      - g-ratio
-    include_all:
-      - segmentation
-      - electron microscopy
+      - axon tracing
+    include_all: []
     exclude:
-      - clinical trial
-      - stroke
-      - tractography
-      - Alzheimer
-      - dementia
-      - tumor
-      - glioma
       - retina
+      - plant
       - cardiac
+      - speech
+      - satellite
+      - remote sensing
       - seismic
       - alloy
       - semiconductor
+    boost_authors:
+      - Cohen-Adad J
+      - Abdollahzadeh A
+      - Collin A
+      - Zaimi A
     boost_venues:
+      - Scientific Reports
+      - Communications Biology
+      - NeuroImage
       - Nature Methods
-      - Nature Neuroscience
-      - eLife
       - MICCAI
       - Medical Image Analysis
+
+  - name: g-ratio-myelin-quantification
+    description: "G-ratio computation, myelin measurement, and axon morphometry"
+    include_any:
+      - g-ratio
+      - g ratio
+      - Snap-G
+      - myelin thickness
+      - axon diameter
+      - myelination quantification
+      - myelin volume fraction
+      - axon volume fraction
+      - myelin integrity
+      - remyelination quantification
+      - demyelination measurement
+      - axon fiber diameter
+      - morphometric myelin
+      - MRI g-ratio
+      - aggregate g-ratio
+      - MTV g-ratio
+      - myelin water fraction
+      - axon morphometry
+      - nerve morphometry
+      - axon caliber
+      - myelin sheath measurement
+      - peripheral nerve
+      - sciatic nerve
+      - spinal cord myelin
+    include_all: []
+    exclude:
+      - plant
+      - cardiac myelin
+      - retina
+      - zebrafish development only
+      - tumor
+      - genomics
+      - drug delivery
+    boost_authors:
+      - Stikov N
+      - Cohen-Adad J
+      - Duval T
+    boost_venues:
+      - NeuroImage
+      - Journal of Neuroscience
+      - eNeuro
+      - Scientific Reports
+      - Journal of Neuroscience Methods
+      - Magnetic Resonance in Medicine
 
   - name: deep-learning-microscopy
     description: "Deep learning methods applied to microscopy image analysis"
@@ -114,59 +166,36 @@ templates:
       - eLife
       - Current Biology
 
-  - name: foundation-models-biomedical
-    description: "Foundation models and self-supervised learning for biomedical imaging"
+  - name: foundation-models-biomedical-segmentation
+    description: "Foundation models and universal segmentation for biomedical imaging"
     include_any:
-      - foundation model medical imaging
-      - biomedical foundation model
-      - self-supervised microscopy
-      - pretrained model pathology
-      - vision transformer medical
-      - transfer learning histology
-      - contrastive learning biomedical
-      - masked autoencoder medical
-      - few-shot medical imaging
-      - domain adaptation microscopy
-    include_all:
-      - biomedical
       - foundation model
-    exclude:
-      - natural language processing
-      - speech recognition
-      - autonomous driving
-      - recommendation system
-      - financial
-    boost_venues:
-      - MICCAI
-      - Medical Image Analysis
-      - Nature Methods
-      - IEEE Transactions on Medical Imaging
-
-  - name: myelin-quantification
-    description: "Myelin measurement, g-ratio analysis, and white matter microstructure"
-    include_any:
-      - g-ratio
-      - myelin thickness
-      - myelin water fraction
-      - axon diameter measurement
-      - myelin quantification
-      - myelin volume fraction
-      - white matter microstructure
-      - axon morphometry
-      - nerve fiber analysis
-      - myelin sheath measurement
-      - electron microscopy myelin
-      - axon caliber
+      - vision foundation model
+      - MedSAM
+      - SAM medical
+      - Segment Anything
+      - BiomedParse
+      - universal segmentation model
+      - generalist segmentation
+      - parameter efficient fine-tuning medical
+      - LoRA medical imaging
+      - DINOv2 segmentation
+      - self-supervised medical segmentation
+      - zero-shot medical segmentation
+      - transfer learning microscopy
+      - multi-modal foundation model radiology
+      - nnU-Net
     include_all:
-      - myelin
+      - segmentation
     exclude:
-      - clinical trial
-      - Alzheimer
-      - tumor
-      - genomics
-      - drug delivery
+      - NLP only
+      - text only
+      - speech recognition
+      - remote sensing
+      - autonomous driving
+      - satellite imagery
     boost_venues:
-      - NeuroImage
-      - Magnetic Resonance in Medicine
-      - Nature Neuroscience
-      - eLife
+      - Nature Methods
+      - Medical Image Analysis
+      - MICCAI
+      - arXiv cs.CV

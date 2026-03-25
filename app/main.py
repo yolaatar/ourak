@@ -13,7 +13,6 @@ from app.scoring import score_papers
 from app.sources.arxiv import fetch_arxiv
 from app.sources.biorxiv import fetch_biorxiv
 from app.sources.paperswithcode import fetch_paperswithcode
-from app.sources.pubmed import fetch_pubmed
 from app.sources.semantic_scholar import fetch_semantic_scholar
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -33,8 +32,7 @@ def run() -> None:
         limit = cfg.defaults["max_results_per_source"]
 
         for topic in cfg.topics:
-            papers = fetch_pubmed(topic, days, limit)
-            papers += fetch_arxiv(topic, days, limit)
+            papers = fetch_arxiv(topic, days, limit)
             papers += fetch_semantic_scholar(topic, days, limit)
             papers += fetch_biorxiv(topic, days, limit)
             papers += fetch_paperswithcode(topic, days, limit)
