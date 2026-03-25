@@ -1,12 +1,15 @@
 """FastAPI application for paper-watch."""
 
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
+from fastapi.responses import FileResponse
 
 load_dotenv()  # load .env before anything reads os.getenv
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import Engine
 
 from app.db import init_db
@@ -19,6 +22,9 @@ from backend.api.users import router as users_router
 # Module-level engine reference for tests
 _engine: Engine | None = None
 
+# Path to built frontend assets (populated by Dockerfile)
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
@@ -27,12 +33,13 @@ def create_app() -> FastAPI:
     app = FastAPI(title="paper-watch", version="0.1.0")
 
     # CORS
+    frontend_url = os.getenv("FRONTEND_URL", "")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
             "http://localhost:5173",
             "http://localhost:3000",
-            os.getenv("FRONTEND_URL", ""),
+            *([] if not frontend_url else [frontend_url]),
         ],
         allow_credentials=True,
         allow_methods=["*"],
@@ -55,6 +62,18 @@ def create_app() -> FastAPI:
     app.include_router(papers_router, dependencies=[Depends(require_auth)])
     app.include_router(topics_router, dependencies=[Depends(require_auth)])
     app.include_router(users_router, dependencies=[Depends(require_auth)])
+
+    # Serve frontend static files (production build)
+    if STATIC_DIR.is_dir():
+        app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+
+        @app.get("/{path:path}")
+        async def serve_spa(path: str):
+            """Serve static files or fall back to index.html for SPA routing."""
+            file = STATIC_DIR / path
+            if file.is_file():
+                return FileResponse(file)
+            return FileResponse(STATIC_DIR / "index.html")
 
     return app
 

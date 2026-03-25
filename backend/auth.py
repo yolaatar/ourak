@@ -33,11 +33,13 @@ def login(body: LoginRequest, response: Response) -> dict:
         "exp": datetime.now(timezone.utc) + timedelta(days=30),
     }
     token = jwt.encode(payload, _get_secret(), algorithm="HS256")
+    is_prod = os.getenv("RAILWAY_ENVIRONMENT") is not None
     response.set_cookie(
         key="session",
         value=token,
         httponly=True,
-        samesite="strict",
+        samesite="lax",
+        secure=is_prod,
         max_age=30 * 24 * 3600,
     )
     return {"status": "ok"}
