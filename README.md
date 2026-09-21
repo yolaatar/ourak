@@ -79,6 +79,31 @@ frontend/             React + Vite
 tests/                pytest suite
 ```
 
+## Lab Watcher
+
+Tracks new papers written by the lab and new papers citing the lab, using OpenAlex, and posts them to Slack.
+
+1. Edit `config/lab.yaml`. Lab papers are matched by affiliation keyword (e.g. "NeuroPoly") and/or by listed authors (ORCID preferred, or OpenAlex author IDs). To find IDs:
+   ```bash
+   python -m app.lab_watch --find "Full Name" "Other Name"
+   ```
+2. Preview without posting or saving anything:
+   ```bash
+   python -m app.lab_watch --dry-run
+   ```
+3. Run for real: posts to `SLACK_WEBHOOK_URL` (or prints if unset) and marks papers as seen in the DB, so the next run only reports new ones:
+   ```bash
+   python -m app.lab_watch
+   ```
+
+Papers also get linked to the `lab-papers` and `citing-lab` topics, so they show up in the web feed.
+
+### Weekly run on GitHub Actions
+
+`.github/workflows/lab-watch.yml` runs every Monday. The DB of already-posted papers is kept on the `lab-watch-state` branch (created on first run), so nothing needs to be hosted.
+
+Setup: add a `SLACK_WEBHOOK_URL` repo secret (Slack app with Incoming Webhooks enabled, added to a channel). `OPENALEX_EMAIL` and `OPENALEX_API_KEY` secrets are optional. To test, trigger it manually from the Actions tab with "dry run" checked.
+
 ## Running Tests
 
 ```bash
