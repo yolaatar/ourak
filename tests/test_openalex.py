@@ -153,3 +153,29 @@ def test_fetch_citing_merges_across_chunks(mock_get_all):
     papers = openalex.fetch_citing_papers(lab_works, days_back=30)
     assert len(papers) == 1
     assert papers[0].cited_lab_works == [lab_works[first_chunk_ref], lab_works[last_ref]]
+
+
+# --- Lab-led ranking ---
+
+
+def test_is_first_author_from_lab_true_when_lab_member_leads():
+    work = _work("W1", "Lab paper", authors=[
+        ("A1", "Jane Lab", "https://orcid.org/0000-0001-0000-0001", "NeuroPoly"),
+        ("A7", "Outsider", None, "Elsewhere"),
+    ])
+    assert openalex._is_first_author_from_lab(work, CFG) is True
+
+
+def test_is_first_author_from_lab_false_when_lab_member_is_last():
+    # e.g. the PI as senior/corresponding author on an external collaboration —
+    # a lab member is present, but didn't drive the work
+    work = _work("W1", "External paper", authors=[
+        ("A7", "Outsider", None, "Elsewhere"),
+        ("A8", "Someone Else", None, "Elsewhere"),
+        ("A1", "Jane Lab", "https://orcid.org/0000-0001-0000-0001", "NeuroPoly"),
+    ])
+    assert openalex._is_first_author_from_lab(work, CFG) is False
+
+
+def test_is_first_author_from_lab_false_with_no_authors():
+    assert openalex._is_first_author_from_lab(_work("W1", "No authors"), CFG) is False

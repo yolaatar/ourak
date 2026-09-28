@@ -17,8 +17,13 @@ def db_session():
         yield session
 
 
-def _work(title, authors=None, published_date=None):
-    return {"title": title, "authors": authors or [], "published_date": published_date}
+def _work(title, authors=None, published_date=None, is_first_author=False):
+    return {
+        "title": title,
+        "authors": authors or [],
+        "published_date": published_date,
+        "is_first_author": is_first_author,
+    }
 
 
 def _citing(i, cited_lab_works, published_date="2026-09-01"):
@@ -73,6 +78,21 @@ def test_groups_by_cited_title(db_session):
 def test_empty_state_when_no_citations(db_session):
     html_out = build_citations_page(db_session, "NeuroPoly")
     assert "No citations tracked yet" in html_out
+
+
+def test_lab_led_work_outranks_higher_citation_count(db_session):
+    # "consortium" is cited far more, but a lab member is only a minor co-author
+    # on it — "axon" is lab-led and should still come first
+    consortium = _work("Big Consortium Paper", is_first_author=False)
+    axon = _work("AxonDeepSeg", authors=["A. Zaimi"], is_first_author=True)
+    papers = [_citing(i, [consortium]) for i in range(5)] + [_citing(10, [axon])]
+    mark_seen(db_session, papers, topic_id=None)
+    _link_to_citing_topic(db_session)
+
+    html_out = build_citations_page(db_session, "NeuroPoly")
+
+    assert html_out.index("AxonDeepSeg") < html_out.index("Big Consortium Paper")
+    assert "Lab-led" in html_out
 
 
 def test_grouped_by_month_newest_first(db_session):

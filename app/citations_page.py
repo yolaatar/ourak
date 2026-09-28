@@ -52,8 +52,12 @@ def _group_by_cited_work(papers: list[PaperDB]) -> list[tuple[dict, list[PaperDB
     """Group citing papers by which lab work they cite.
 
     Returns [(cited_work_info, citing_papers), ...] where cited_work_info is
-    {"title", "authors", "published_date"} — whichever citing paper's record
-    of it we saw first (they should all agree; it's the same lab paper).
+    {"title", "authors", "published_date", "is_first_author"} — whichever citing
+    paper's record of it we saw first (they should all agree; it's the same
+    lab paper). Sorted lab-first-authored work first (real lab output, e.g.
+    AxonDeepSeg/SCT), then by citation count — otherwise a paper where a lab
+    member is just a minor co-author on some heavily-cited outside work would
+    crowd out the lab's own work just for having a bigger number.
     """
     order: list[str] = []
     info_by_title: dict[str, dict] = {}
@@ -67,7 +71,7 @@ def _group_by_cited_work(papers: list[PaperDB]) -> list[tuple[dict, list[PaperDB
                 order.append(title)
             papers_by_title[title].append(paper)
     groups = [(info_by_title[t], papers_by_title[t]) for t in order]
-    return sorted(groups, key=lambda kv: len(kv[1]), reverse=True)
+    return sorted(groups, key=lambda kv: (not kv[0].get("is_first_author", False), -len(kv[1])))
 
 
 def _authors_et_al(authors: list[str], max_n: int = 3) -> str:
@@ -110,6 +114,7 @@ def _group_html(cited_work: dict, papers: list[PaperDB]) -> str:
         p for p in [_authors_et_al(cited_work.get("authors") or []), cited_work.get("published_date")] if p
     )
     meta_html = f'<div class="groupMeta">{html.escape(meta)}</div>' if meta else ""
+    lab_led_badge = '<span class="labLedBadge">Lab-led</span>' if cited_work.get("is_first_author") else ""
 
     return (
         '<div class="group">'
@@ -117,6 +122,7 @@ def _group_html(cited_work: dict, papers: list[PaperDB]) -> str:
         '<div class="groupHeaderTop">'
         '<span class="citesLabel">Cites</span>'
         f'<span class="groupTitle">{html.escape(title)}</span>'
+        f"{lab_led_badge}"
         f'<span class="groupCount">{_count_label(len(papers))}</span>'
         "</div>"
         f"{meta_html}"
@@ -128,11 +134,12 @@ def _group_html(cited_work: dict, papers: list[PaperDB]) -> str:
 
 def _month_html(label: str, papers: list[PaperDB], *, open_by_default: bool) -> str:
     groups = _group_by_cited_work(papers)
-    # Groups with several citations are the interesting ones — show them right away.
-    # One-citation groups are usually the majority and mostly noise; tuck them
-    # behind their own toggle so a month doesn't turn into an endless scroll.
-    highlighted = [(t, g) for t, g in groups if len(g) > 1]
-    singles = [(t, g) for t, g in groups if len(g) == 1]
+    # Groups with several citations, or lab-led ones regardless of count, are the
+    # interesting ones — show them right away. A single-citation, non-lab-led
+    # group is usually noise; tuck those behind their own toggle so a month
+    # doesn't turn into an endless scroll.
+    highlighted = [(t, g) for t, g in groups if t.get("is_first_author") or len(g) > 1]
+    singles = [(t, g) for t, g in groups if not t.get("is_first_author") and len(g) == 1]
 
     highlighted_html = "\n".join(_group_html(title, group) for title, group in highlighted)
     singles_html = ""
@@ -298,6 +305,11 @@ _STYLE = """
   .citesLabel {
     font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
     color: var(--color-accent); background: rgba(59, 130, 246, 0.15);
+    padding: 2px 6px; border-radius: var(--radius-sm);
+  }
+  .labLedBadge {
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+    color: #4ade80; background: rgba(34, 197, 94, 0.15);
     padding: 2px 6px; border-radius: var(--radius-sm);
   }
   .groupTitle { font-size: 14px; font-weight: 600; flex: 1; min-width: 0; }

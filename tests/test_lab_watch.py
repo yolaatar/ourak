@@ -7,7 +7,7 @@ from sqlmodel import Session, select
 
 import app.db as db
 from app.db import PaperDB, TopicDB
-from app.lab_watch import AUTHORED_TOPIC, CITING_TOPIC, run
+from app.lab_watch import AUTHORED_TOPIC, CITING_TOPIC, _rank_authored, run
 from app.models import LabPaper
 from app.slack import build_messages
 
@@ -60,6 +60,28 @@ def test_citing_titles_truncated_to_three():
     works = [{"title": c} for c in "abcde"]
     [msg] = build_messages("L", [], [_paper(1, "citing", cited_lab_works=works)])
     assert "(+2 more)" in msg["blocks"][-1]["text"]["text"]
+
+
+# --- Ranking ---
+
+
+def test_rank_authored_puts_first_author_papers_first():
+    # PI-as-collaborator paper is newer, but a lab-first-authored paper should
+    # still rank above it
+    pi_collab = _paper(1, "authored", is_first_author=False)
+    pi_collab.published_date = "2026-09-20"
+    lab_led_older = _paper(2, "authored", is_first_author=True)
+    lab_led_older.published_date = "2026-09-01"
+    lab_led_newer = _paper(3, "authored", is_first_author=True)
+    lab_led_newer.published_date = "2026-09-15"
+
+    ranked = _rank_authored([pi_collab, lab_led_older, lab_led_newer])
+
+    assert [p.source_id for p in ranked] == [
+        "openalex:W3",  # lab-led, newest of the lab-led ones
+        "openalex:W2",  # lab-led, older
+        "openalex:W1",  # PI-as-collaborator, despite being the newest overall
+    ]
 
 
 # --- Pipeline ---

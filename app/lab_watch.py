@@ -55,6 +55,16 @@ def _newest_first(papers: list[LabPaper]) -> list[LabPaper]:
     return sorted(papers, key=lambda p: p.published_date or "", reverse=True)
 
 
+def _rank_authored(papers: list[LabPaper]) -> list[LabPaper]:
+    """Lab-first-author papers ("our work") ahead of papers where a lab member
+    (often the PI) is just a co-author on someone else's paper. Newest first
+    within each group — sort by date, then stably re-sort by the group, so the
+    date order survives inside each group.
+    """
+    by_date = _newest_first(papers)
+    return sorted(by_date, key=lambda p: not p.is_first_author)
+
+
 def collect(
     cfg: LabConfig, session: Session, fetch_citations: bool = True
 ) -> tuple[list[LabPaper], list[LabPaper]]:
@@ -74,7 +84,7 @@ def collect(
         citing = fetch_citing_papers(lab_works, cfg.lookback_days) if lab_works else []
         citing = dedup_papers(get_unseen_papers(session, citing))
 
-    return _newest_first(authored), _newest_first(citing)
+    return _rank_authored(authored), _newest_first(citing)
 
 
 def run(

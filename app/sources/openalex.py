@@ -101,39 +101,58 @@ def _abstract_from_index(inverted: dict | None) -> str | None:
     return " ".join(word for _, word in sorted(positions)) or None
 
 
-def _match_lab_authors(work: dict, cfg: LabConfig) -> list[str]:
-    """Return the names of lab members on a work.
-
-    Tried in order for each author: ORCID / OpenAlex ID, then name (the work is
-    already known to be a lab paper, and OpenAlex often attaches authorships to
-    a stray profile without the ORCID), then affiliation keyword. Very long
-    affiliation strings are ignored: some journals lump every author's
-    affiliation into one string, which would tag the whole author list.
-    """
+def _lab_lookups(cfg: LabConfig) -> tuple[dict, dict, dict, list[str]]:
     by_orcid = {_norm_orcid(a.orcid): a.name for a in cfg.authors if a.orcid}
     by_id = {_short_id(i): a.name for a in cfg.authors for i in a.openalex_ids}
     by_name = {_norm_name(a.name): a.name for a in cfg.authors}
     keywords = [kw.lower() for kw in cfg.affiliations]
+    return by_orcid, by_id, by_name, keywords
 
+
+def _lab_member_name(authorship: dict, by_orcid: dict, by_id: dict, by_name: dict, keywords: list[str]) -> str | None:
+    """Match a single authorship against the lab roster.
+
+    Tried in order: ORCID / OpenAlex ID, then name (the work is already known
+    to be a lab paper, and OpenAlex often attaches authorships to a stray
+    profile without the ORCID), then affiliation keyword. Very long affiliation
+    strings are ignored: some journals lump every author's affiliation into one
+    string, which would tag the whole author list.
+    """
+    author = authorship.get("author") or {}
+    display = author.get("display_name") or ""
+    name = (
+        by_orcid.get(_norm_orcid(author.get("orcid")))
+        or by_id.get(_short_id(author.get("id")))
+        or by_name.get(_norm_name(display))
+    )
+    if not name and any(
+        kw in s.lower()
+        for s in authorship.get("raw_affiliation_strings") or []
+        if len(s) <= _MAX_AFFILIATION_LEN
+        for kw in keywords
+    ):
+        name = display
+    return name
+
+
+def _match_lab_authors(work: dict, cfg: LabConfig) -> list[str]:
+    """Return the names of lab members on a work, in author-list order."""
+    lookups = _lab_lookups(cfg)
     names: list[str] = []
     for authorship in work.get("authorships") or []:
-        author = authorship.get("author") or {}
-        display = author.get("display_name") or ""
-        name = (
-            by_orcid.get(_norm_orcid(author.get("orcid")))
-            or by_id.get(_short_id(author.get("id")))
-            or by_name.get(_norm_name(display))
-        )
-        if not name and any(
-            kw in s.lower()
-            for s in authorship.get("raw_affiliation_strings") or []
-            if len(s) <= _MAX_AFFILIATION_LEN
-            for kw in keywords
-        ):
-            name = display
+        name = _lab_member_name(authorship, *lookups)
         if name and name not in names:
             names.append(name)
     return names
+
+
+def _is_first_author_from_lab(work: dict, cfg: LabConfig) -> bool:
+    """True if the first-listed author is a lab member — i.e. the lab drove this
+    work, as opposed to a lab member (often the PI) being a co-author elsewhere."""
+    authorships = work.get("authorships") or []
+    if not authorships:
+        return False
+    return _lab_member_name(authorships[0], *_lab_lookups(cfg)) is not None
 
 
 def _parse_work(work: dict, kind: str) -> LabPaper:
@@ -169,7 +188,12 @@ _LAB_WORK_FIELDS = "id,title,authorships,publication_date"
 
 
 def fetch_lab_works(cfg: LabConfig) -> dict[str, dict]:
-    """Return every work ever written by the lab, as {work_id: {title, authors, published_date}}.
+    """Return every work ever written by the lab, as
+    {work_id: {title, authors, published_date, is_first_author}}.
+
+    is_first_author distinguishes lab-led work from work where a lab member
+    (often the PI) is just a co-author elsewhere — used to rank the citations
+    digest so real lab output outranks high-citation-count noise.
 
     Not type-filtered: a paper citing the lab's software or dataset still counts.
     """
@@ -183,6 +207,7 @@ def fetch_lab_works(cfg: LabConfig) -> dict[str, dict]:
                 "title": w.get("title") or "",
                 "authors": [a for a in authors if a],
                 "published_date": w.get("publication_date"),
+                "is_first_author": _is_first_author_from_lab(w, cfg),
             }
     return works
 
@@ -199,6 +224,7 @@ def fetch_lab_papers(cfg: LabConfig, days_back: int) -> list[LabPaper]:
         for work in _get_all(filter_str, _WORK_FIELDS):
             paper = _parse_work(work, "authored")
             paper.lab_authors = _match_lab_authors(work, cfg)
+            paper.is_first_author = _is_first_author_from_lab(work, cfg)
             papers[paper.source_id] = paper
     return list(papers.values())
 

@@ -26,6 +26,9 @@ class LabPaper(Paper):
 
     kind: Literal["authored", "citing"]
     lab_authors: list[str] = Field(default_factory=list)  # lab members on the paper
+    # True if a lab member is first author — the work was actually driven by the
+    # lab, vs. a lab member (often the PI) being a co-author on someone else's paper
+    is_first_author: bool = False
     # lab papers it cites: [{"title", "authors", "published_date"}, ...]
     cited_lab_works: list[dict] = Field(default_factory=list)
 
