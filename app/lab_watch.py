@@ -3,6 +3,7 @@
 Usage:
     python -m app.lab_watch                 # fetch, post to Slack, mark as seen
     python -m app.lab_watch --dry-run       # print the digest, touch nothing
+    python -m app.lab_watch --authored-only # skip the citation pipeline (for a daily run)
     python -m app.lab_watch --find "A" "B"  # look up ORCID/OpenAlex IDs for lab.yaml
 """
 
@@ -54,20 +55,31 @@ def _newest_first(papers: list[LabPaper]) -> list[LabPaper]:
     return sorted(papers, key=lambda p: p.published_date or "", reverse=True)
 
 
-def collect(cfg: LabConfig, session: Session) -> tuple[list[LabPaper], list[LabPaper]]:
-    """Fetch, drop already-seen papers, and dedup. Returns (authored, citing)."""
+def collect(
+    cfg: LabConfig, session: Session, fetch_citations: bool = True
+) -> tuple[list[LabPaper], list[LabPaper]]:
+    """Fetch, drop already-seen papers, and dedup. Returns (authored, citing).
+
+    fetch_citations=False skips the citation pipeline entirely (fetch_lab_works
+    pages through every work the lab has ever published) — for a cheap daily
+    run that only checks for newly authored papers.
+    """
     authored = fetch_lab_papers(cfg, cfg.lookback_days)
-
-    lab_works = fetch_lab_works(cfg)
-    logger.info("Lab has %d known works in OpenAlex", len(lab_works))
-    citing = fetch_citing_papers(lab_works, cfg.lookback_days) if lab_works else []
-
     authored = dedup_papers(get_unseen_papers(session, authored))
-    citing = dedup_papers(get_unseen_papers(session, citing))
+
+    citing: list[LabPaper] = []
+    if fetch_citations:
+        lab_works = fetch_lab_works(cfg)
+        logger.info("Lab has %d known works in OpenAlex", len(lab_works))
+        citing = fetch_citing_papers(lab_works, cfg.lookback_days) if lab_works else []
+        citing = dedup_papers(get_unseen_papers(session, citing))
+
     return _newest_first(authored), _newest_first(citing)
 
 
-def run(config_path: str = "config/lab.yaml", dry_run: bool = False) -> tuple[int, int]:
+def run(
+    config_path: str = "config/lab.yaml", dry_run: bool = False, fetch_citations: bool = True
+) -> tuple[int, int]:
     """Run one lab-watch pass. Returns (new authored, new citing) counts."""
     load_env()
     cfg = load_lab_config(config_path)
@@ -77,23 +89,28 @@ def run(config_path: str = "config/lab.yaml", dry_run: bool = False) -> tuple[in
     engine = init_db(db_url)
 
     with Session(engine) as session:
-        authored, citing = collect(cfg, session)
+        authored, citing = collect(cfg, session, fetch_citations=fetch_citations)
         logger.info("New: %d lab papers, %d citing papers", len(authored), len(citing))
 
-        if dry_run or not (authored or citing):
+        if dry_run:
             print(build_digest([("New from the lab", authored), ("Citing the lab", citing)]))
             return len(authored), len(citing)
 
-        webhook = os.getenv("SLACK_WEBHOOK_URL")
-        if webhook:
-            post_to_slack(webhook, build_messages(cfg.lab_name, authored, citing))
+        # Only post (and mark seen) when there's a new authored paper — an empty
+        # digest every run otherwise, since citations are noisy and not posted.
+        if authored:
+            webhook = os.getenv("SLACK_WEBHOOK_URL")
+            if webhook:
+                post_to_slack(webhook, build_messages(cfg.lab_name, authored, citing))
+            else:
+                logger.warning("SLACK_WEBHOOK_URL not set, printing digest instead")
+                print(build_digest([("New from the lab", authored)]))
+            mark_seen(session, authored, topic_id=_get_or_create_topic(session, AUTHORED_TOPIC).id)
         else:
-            logger.warning("SLACK_WEBHOOK_URL not set, printing digest instead")
-            print(build_digest([("New from the lab", authored), ("Citing the lab", citing)]))
+            logger.info("No new lab papers, nothing posted")
 
-        # Only mark as seen once delivery succeeded, so a failed post is retried next run
-        mark_seen(session, authored, topic_id=_get_or_create_topic(session, AUTHORED_TOPIC).id)
-        mark_seen(session, citing, topic_id=_get_or_create_topic(session, CITING_TOPIC).id)
+        if fetch_citations:
+            mark_seen(session, citing, topic_id=_get_or_create_topic(session, CITING_TOPIC).id)
 
     return len(authored), len(citing)
 
@@ -117,13 +134,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Watch for new lab papers and citations.")
     parser.add_argument("--config", default="config/lab.yaml")
     parser.add_argument("--dry-run", action="store_true", help="print only, don't post or mark seen")
+    parser.add_argument(
+        "--authored-only", action="store_true", help="skip the citation pipeline (for a daily run)"
+    )
     parser.add_argument("--find", metavar="NAME", nargs="+", help="search OpenAlex author profiles by name(s)")
     args = parser.parse_args()
 
     if args.find:
         _print_author_matches(args.find)
     else:
-        run(args.config, dry_run=args.dry_run)
+        run(args.config, dry_run=args.dry_run, fetch_citations=not args.authored_only)
 
 
 if __name__ == "__main__":

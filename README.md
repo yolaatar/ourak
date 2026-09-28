@@ -91,18 +91,22 @@ Tracks new papers written by the lab and new papers citing the lab, using OpenAl
    ```bash
    python -m app.lab_watch --dry-run
    ```
-3. Run for real: posts to `SLACK_WEBHOOK_URL` (or prints if unset) and marks papers as seen in the DB, so the next run only reports new ones:
+3. Run for real: posts new lab-authored papers to `SLACK_WEBHOOK_URL` (or prints if unset), silently no-ops if there aren't any, and marks papers as seen in the DB so the next run only reports new ones:
    ```bash
    python -m app.lab_watch
    ```
+   Add `--authored-only` to skip the citation pipeline (`fetch_lab_works` pages through every work the lab has ever published, so it's the expensive part) — used for the daily run below.
 
 Papers also get linked to the `lab-papers` and `citing-lab` topics, so they show up in the web feed.
 
-### Weekly run on GitHub Actions
+### Scheduled runs on GitHub Actions
 
-`.github/workflows/lab-watch.yml` runs every Monday. The DB of already-posted papers is kept on the `lab-watch-state` branch (created on first run), so nothing needs to be hosted.
+Two workflows share the same seen-papers state (the `lab-watch-state` branch, created on first run — nothing needs to be hosted) and the same `concurrency: lab-watch` group, so they never race each other:
 
-Setup: add a `SLACK_WEBHOOK_URL` repo secret (Slack app with Incoming Webhooks enabled, added to a channel). `OPENALEX_EMAIL` and `OPENALEX_API_KEY` secrets are optional. To test, trigger it manually from the Actions tab with "dry run" checked.
+- `.github/workflows/lab-watch-daily.yml` — daily at 12:00 UTC, `--authored-only`. Cheap, and only posts when there's actually a new lab paper.
+- `.github/workflows/lab-watch.yml` — weekly, Mondays 13:00 UTC, full run including the citation pipeline.
+
+Setup: add a `SLACK_WEBHOOK_URL` repo secret (Slack app with Incoming Webhooks enabled, added to a channel). `OPENALEX_EMAIL` and `OPENALEX_API_KEY` secrets are optional. To test either one, trigger it manually from the Actions tab with "dry run" checked.
 
 ## Running Tests
 

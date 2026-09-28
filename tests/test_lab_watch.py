@@ -124,3 +124,27 @@ def test_dry_run_neither_posts_nor_marks_seen(_lab, _works, _citing, mock_post, 
     assert run(lab_env, dry_run=True) == (1, 0)
     assert run(lab_env, dry_run=True) == (1, 0)
     mock_post.assert_not_called()
+
+
+@patch("app.lab_watch.post_to_slack")
+@patch("app.lab_watch.fetch_citing_papers")
+@patch("app.lab_watch.fetch_lab_works")
+@patch("app.lab_watch.fetch_lab_papers", side_effect=lambda *a: [_paper(1, "authored")])
+def test_authored_only_skips_citation_pipeline(mock_lab, mock_works, mock_citing, mock_post, lab_env):
+    assert run(lab_env, fetch_citations=False) == (1, 0)
+    mock_works.assert_not_called()
+    mock_citing.assert_not_called()
+    mock_post.assert_called_once()
+
+    with Session(db._engine) as s:
+        topics = {t.name for t in s.exec(select(TopicDB)).all()}
+        assert topics == {AUTHORED_TOPIC}  # CITING_TOPIC never touched
+
+
+@patch("app.lab_watch.post_to_slack")
+@patch("app.lab_watch.fetch_citing_papers", side_effect=lambda *a: [_paper(2, "citing")])
+@patch("app.lab_watch.fetch_lab_works", return_value={"W100": "Old lab paper"})
+@patch("app.lab_watch.fetch_lab_papers", side_effect=lambda *a: [])
+def test_no_authored_papers_skips_post_even_with_new_citations(_lab, _works, _citing, mock_post, lab_env):
+    assert run(lab_env) == (0, 1)
+    mock_post.assert_not_called()
