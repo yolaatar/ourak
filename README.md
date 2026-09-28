@@ -81,7 +81,7 @@ tests/                pytest suite
 
 ## Lab Watcher
 
-Tracks new papers written by the lab and new papers citing the lab, using OpenAlex, and posts them to Slack.
+Tracks new papers written by the lab and new papers citing the lab, using OpenAlex. Lab-authored papers are posted to Slack directly. Citing papers are too noisy to post individually, so instead they're published as a static digest page — grouped by which lab paper is cited — at **https://yolaatar.github.io/ourak/** (GitHub Pages, from the `gh-pages` branch), with Slack just getting a one-line pointer when there's something new.
 
 1. Edit `config/lab.yaml`. Lab papers are matched by affiliation keyword (e.g. "NeuroPoly") and/or by listed authors (ORCID preferred, or OpenAlex author IDs). To find IDs:
    ```bash
@@ -104,9 +104,11 @@ Papers also get linked to the `lab-papers` and `citing-lab` topics, so they show
 Two workflows share the same seen-papers state (the `lab-watch-state` branch, created on first run — nothing needs to be hosted) and the same `concurrency: lab-watch` group, so they never race each other:
 
 - `.github/workflows/lab-watch-daily.yml` — daily at 12:00 UTC, `--authored-only`. Cheap, and only posts when there's actually a new lab paper.
-- `.github/workflows/lab-watch.yml` — weekly, Mondays 13:00 UTC, full run including the citation pipeline.
+- `.github/workflows/lab-watch.yml` — weekly, Mondays 13:00 UTC, full run including the citation pipeline. Also regenerates the citations digest page and force-pushes it to `gh-pages`.
 
-Setup: add a `SLACK_WEBHOOK_URL` repo secret (Slack app with Incoming Webhooks enabled, added to a channel). `OPENALEX_EMAIL` and `OPENALEX_API_KEY` secrets are optional. To test either one, trigger it manually from the Actions tab with "dry run" checked.
+Setup: add a `SLACK_WEBHOOK_URL` repo secret (Slack app with Incoming Webhooks enabled, added to a channel). `OPENALEX_EMAIL` and `OPENALEX_API_KEY` secrets are optional but recommended (anonymous OpenAlex requests get rate-limited under load). To test either one, trigger it manually from the Actions tab with "dry run" checked.
+
+GitHub Pages: enabled once, pointing at the `gh-pages` branch, root — no further setup needed, the weekly workflow keeps it updated. `LAB_CITATIONS_URL` (set in `lab-watch.yml`) is what gets linked in the Slack pointer message; update it if the Pages URL ever changes (e.g. a custom domain).
 
 ## Running Tests
 

@@ -124,9 +124,13 @@ def test_norm_name_folds_accents_and_hyphens():
     assert openalex._norm_name("Pierre‐Louis Benveniste") == "pierre louis benveniste"
 
 
+def _lab_work(title, authors=None, published_date=None):
+    return {"title": title, "authors": authors or [], "published_date": published_date}
+
+
 @patch("app.sources.openalex._get_all")
 def test_fetch_citing_skips_self_citations_and_collects_cited_titles(mock_get_all):
-    lab_works = {"W1": "Lab paper one", "W2": "Lab paper two"}
+    lab_works = {"W1": _lab_work("Lab paper one"), "W2": _lab_work("Lab paper two")}
     mock_get_all.return_value = [
         _work("W50", "External citing paper", refs=["W1", "W2", "W999"]),
         _work("W2", "Lab paper two", refs=["W1"]),  # lab citing itself
@@ -134,13 +138,13 @@ def test_fetch_citing_skips_self_citations_and_collects_cited_titles(mock_get_al
     papers = openalex.fetch_citing_papers(lab_works, days_back=30)
     assert [p.source_id for p in papers] == ["openalex:W50"]
     assert papers[0].kind == "citing"
-    assert papers[0].cited_lab_titles == ["Lab paper one", "Lab paper two"]
+    assert papers[0].cited_lab_works == [lab_works["W1"], lab_works["W2"]]
     assert mock_get_all.call_args.args[0].startswith("cites:W1|W2,type:article|")
 
 
 @patch("app.sources.openalex._get_all")
 def test_fetch_citing_merges_across_chunks(mock_get_all):
-    lab_works = {f"W{i}": f"Lab {i}" for i in range(openalex._OR_CHUNK + 1)}
+    lab_works = {f"W{i}": _lab_work(f"Lab {i}") for i in range(openalex._OR_CHUNK + 1)}
     first_chunk_ref, last_ref = sorted(lab_works)[0], sorted(lab_works)[-1]
     mock_get_all.side_effect = [
         [_work("W500", "Citing", refs=[first_chunk_ref])],
@@ -148,4 +152,4 @@ def test_fetch_citing_merges_across_chunks(mock_get_all):
     ]
     papers = openalex.fetch_citing_papers(lab_works, days_back=30)
     assert len(papers) == 1
-    assert papers[0].cited_lab_titles == [lab_works[first_chunk_ref], lab_works[last_ref]]
+    assert papers[0].cited_lab_works == [lab_works[first_chunk_ref], lab_works[last_ref]]

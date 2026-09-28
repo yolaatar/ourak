@@ -165,15 +165,25 @@ def _since(days_back: int) -> str:
     return (datetime.now(timezone.utc).date() - timedelta(days=days_back)).isoformat()
 
 
-def fetch_lab_works(cfg: LabConfig) -> dict[str, str]:
-    """Return every work ever written by the lab, as {work_id: title}.
+_LAB_WORK_FIELDS = "id,title,authorships,publication_date"
+
+
+def fetch_lab_works(cfg: LabConfig) -> dict[str, dict]:
+    """Return every work ever written by the lab, as {work_id: {title, authors, published_date}}.
 
     Not type-filtered: a paper citing the lab's software or dataset still counts.
     """
-    works: dict[str, str] = {}
+    works: dict[str, dict] = {}
     for f in _lab_filters(cfg):
-        for w in _get_all(f, "id,title"):
-            works[_short_id(w["id"])] = w.get("title") or ""
+        for w in _get_all(f, _LAB_WORK_FIELDS):
+            authors = [
+                (a.get("author") or {}).get("display_name", "") for a in w.get("authorships") or []
+            ]
+            works[_short_id(w["id"])] = {
+                "title": w.get("title") or "",
+                "authors": [a for a in authors if a],
+                "published_date": w.get("publication_date"),
+            }
     return works
 
 
@@ -193,7 +203,7 @@ def fetch_lab_papers(cfg: LabConfig, days_back: int) -> list[LabPaper]:
     return list(papers.values())
 
 
-def fetch_citing_papers(lab_works: dict[str, str], days_back: int) -> list[LabPaper]:
+def fetch_citing_papers(lab_works: dict[str, dict], days_back: int) -> list[LabPaper]:
     """Fetch recent papers citing any lab work, excluding the lab's own papers."""
     papers: dict[str, LabPaper] = {}
     since = _since(days_back)
@@ -204,10 +214,12 @@ def fetch_citing_papers(lab_works: dict[str, str], days_back: int) -> list[LabPa
             if work_id in lab_works:
                 continue  # self-citation, already covered by fetch_lab_papers
             paper = papers.get(f"openalex:{work_id}") or _parse_work(work, "citing")
+            cited_titles = {w["title"] for w in paper.cited_lab_works}
             for ref in work.get("referenced_works") or []:
-                title = lab_works.get(_short_id(ref))
-                if title and title not in paper.cited_lab_titles:
-                    paper.cited_lab_titles.append(title)
+                info = lab_works.get(_short_id(ref))
+                if info and info["title"] not in cited_titles:
+                    paper.cited_lab_works.append(info)
+                    cited_titles.add(info["title"])
             papers[paper.source_id] = paper
     return list(papers.values())
 

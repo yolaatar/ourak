@@ -194,3 +194,24 @@ def test_mark_seen_idempotent(db_session):
     papers = [Paper(source="arxiv", source_id="arxiv:10", title="A")]
     mark_seen(db_session, papers)
     mark_seen(db_session, papers)  # should not raise
+
+
+def test_mark_seen_persists_cited_lab_works(db_session):
+    """LabPaper.cited_lab_works should survive the round trip through PaperDB."""
+    import json
+    from app.db import PaperDB, mark_seen
+    from app.models import LabPaper
+    from sqlmodel import select
+
+    work = {"title": "SCT: Spinal Cord Toolbox", "authors": ["J. Cohen-Adad"], "published_date": "2017-01-01"}
+    paper = LabPaper(
+        kind="citing",
+        source="openalex",
+        source_id="openalex:W1",
+        title="Citing paper",
+        cited_lab_works=[work],
+    )
+    mark_seen(db_session, [paper])
+
+    row = db_session.exec(select(PaperDB).where(PaperDB.source_id == "openalex:W1")).first()
+    assert json.loads(row.cited_lab_works) == [work]

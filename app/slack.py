@@ -32,9 +32,10 @@ def _paper_block(paper: LabPaper) -> dict:
 
     if paper.kind == "authored" and paper.lab_authors:
         lines.append(f"Lab: {_escape(', '.join(paper.lab_authors))}")
-    if paper.kind == "citing" and paper.cited_lab_titles:
-        cited = "; ".join(_escape(t) for t in paper.cited_lab_titles[:3])
-        more = len(paper.cited_lab_titles) - 3
+    if paper.kind == "citing" and paper.cited_lab_works:
+        titles = [w["title"] for w in paper.cited_lab_works]
+        cited = "; ".join(_escape(t) for t in titles[:3])
+        more = len(titles) - 3
         lines.append(f"Cites: _{cited}_" + (f" (+{more} more)" if more > 0 else ""))
 
     text = "\n".join(lines)
@@ -59,6 +60,13 @@ def build_messages(lab_name: str, authored: list[LabPaper], citing: list[LabPape
         {"text": summary, "blocks": blocks[i : i + _MAX_BLOCKS]}
         for i in range(0, len(blocks), _MAX_BLOCKS)
     ]
+
+
+def build_citation_pointer_message(lab_name: str, count: int, url: str) -> list[dict]:
+    """One lightweight payload pointing to the citations digest page (not posted in detail yet)."""
+    plural = "s" if count != 1 else ""
+    text = f"*{_escape(lab_name)} watch:* {count} new paper{plural} cite the lab this week — <{url}|see them>"
+    return [{"text": text, "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]}]
 
 
 def post_to_slack(webhook_url: str, messages: list[dict]) -> None:

@@ -21,7 +21,7 @@ from app.db import TopicDB, get_unseen_papers, init_db, mark_seen
 from app.dedup import dedup_papers
 from app.digest import build_digest
 from app.models import LabConfig, LabPaper
-from app.slack import build_messages, post_to_slack
+from app.slack import build_citation_pointer_message, build_messages, post_to_slack
 from app.sources.openalex import (
     fetch_citing_papers,
     fetch_lab_papers,
@@ -96,12 +96,14 @@ def run(
             print(build_digest([("New from the lab", authored), ("Citing the lab", citing)]))
             return len(authored), len(citing)
 
-        # Only post (and mark seen) when there's a new authored paper — an empty
-        # digest every run otherwise, since citations are noisy and not posted.
+        # Only mark as seen once delivery succeeded, so a failed post is retried next run.
+        # Citing papers aren't posted in detail — just a short pointer to the citations
+        # digest page (LAB_CITATIONS_URL). Either way they're still stored/linked below,
+        # since that page is generated from the DB, not from this run's in-memory list.
         if authored:
             webhook = os.getenv("SLACK_WEBHOOK_URL")
             if webhook:
-                post_to_slack(webhook, build_messages(cfg.lab_name, authored, citing))
+                post_to_slack(webhook, build_messages(cfg.lab_name, authored, []))
             else:
                 logger.warning("SLACK_WEBHOOK_URL not set, printing digest instead")
                 print(build_digest([("New from the lab", authored)]))
@@ -110,6 +112,15 @@ def run(
             logger.info("No new lab papers, nothing posted")
 
         if fetch_citations:
+            if citing:
+                webhook = os.getenv("SLACK_WEBHOOK_URL")
+                citations_url = os.getenv("LAB_CITATIONS_URL")
+                if webhook and citations_url:
+                    post_to_slack(
+                        webhook, build_citation_pointer_message(cfg.lab_name, len(citing), citations_url)
+                    )
+                elif not citations_url:
+                    logger.info("LAB_CITATIONS_URL not set, skipping citation pointer post")
             mark_seen(session, citing, topic_id=_get_or_create_topic(session, CITING_TOPIC).id)
 
     return len(authored), len(citing)

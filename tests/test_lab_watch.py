@@ -30,7 +30,7 @@ def _paper(i, kind, **kw):
 
 def test_build_messages_sections_and_context():
     authored = [_paper(1, "authored", lab_authors=["Jane Lab"])]
-    citing = [_paper(2, "citing", cited_lab_titles=["Our <great> paper"])]
+    citing = [_paper(2, "citing", cited_lab_works=[{"title": "Our <great> paper"}])]
     [msg] = build_messages("NeuroPoly", authored, citing)
 
     assert "1 new lab papers, 1 new citing papers" in msg["text"]
@@ -57,7 +57,8 @@ def test_build_messages_splits_over_block_limit():
 
 
 def test_citing_titles_truncated_to_three():
-    [msg] = build_messages("L", [], [_paper(1, "citing", cited_lab_titles=list("abcde"))])
+    works = [{"title": c} for c in "abcde"]
+    [msg] = build_messages("L", [], [_paper(1, "citing", cited_lab_works=works)])
     assert "(+2 more)" in msg["blocks"][-1]["text"]["text"]
 
 
@@ -148,3 +149,16 @@ def test_authored_only_skips_citation_pipeline(mock_lab, mock_works, mock_citing
 def test_no_authored_papers_skips_post_even_with_new_citations(_lab, _works, _citing, mock_post, lab_env):
     assert run(lab_env) == (0, 1)
     mock_post.assert_not_called()
+
+
+@patch("app.lab_watch.post_to_slack")
+@patch("app.lab_watch.fetch_citing_papers", side_effect=lambda *a: [_paper(2, "citing")])
+@patch("app.lab_watch.fetch_lab_works", return_value={"W100": "Old lab paper"})
+@patch("app.lab_watch.fetch_lab_papers", side_effect=lambda *a: [])
+def test_citation_pointer_posted_when_url_configured(_lab, _works, _citing, mock_post, lab_env, monkeypatch):
+    monkeypatch.setenv("LAB_CITATIONS_URL", "https://example.github.io/lab/")
+    assert run(lab_env) == (0, 1)
+    mock_post.assert_called_once()
+    [msg] = mock_post.call_args.args[1]
+    assert "1 new paper cite the lab" in msg["text"]
+    assert "https://example.github.io/lab/" in msg["text"]

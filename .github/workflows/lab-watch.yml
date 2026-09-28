@@ -18,7 +18,9 @@ concurrency: lab-watch
 
 env:
   STATE_BRANCH: lab-watch-state
+  PAGES_BRANCH: gh-pages
   DATABASE_URL: sqlite:///data/lab_watch.db
+  LAB_CITATIONS_URL: https://yolaatar.github.io/ourak/
 
 jobs:
   lab-watch:
@@ -51,6 +53,13 @@ jobs:
           OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
         run: python -m app.lab_watch ${{ inputs.dry_run && '--dry-run' || '' }}
 
+      # Regenerate the citations digest page from the just-updated DB, while we're
+      # still on `main` — the state-branch checkout below switches the working tree
+      # out from under us, so stage this alongside the DB copy first.
+      - name: Generate citations page
+        if: ${{ !inputs.dry_run }}
+        run: python -m app.citations_page > "$RUNNER_TEMP/index.html"
+
       # Force-push a single commit: only the latest DB is kept, so the repo
       # doesn't accumulate a copy of the binary file every week
       - name: Save seen-papers state
@@ -65,3 +74,14 @@ jobs:
           git add lab_watch.db
           git commit -qm "Lab watch state"
           git push -q --force origin "$STATE_BRANCH"
+
+      # Same force-push-single-commit pattern, on its own orphan branch for Pages
+      - name: Publish citations page
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git checkout -q --orphan "$PAGES_BRANCH"
+          git rm -rq --cached .
+          cp "$RUNNER_TEMP/index.html" index.html
+          git add index.html
+          git commit -qm "Citations digest page"
+          git push -q --force origin "$PAGES_BRANCH"

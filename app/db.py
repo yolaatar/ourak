@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timezone
 from typing import Generator
 
-from sqlalchemy import Engine
+from sqlalchemy import Engine, text
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
@@ -56,6 +56,9 @@ class PaperDB(SQLModel, table=True):
     doi: str | None = None
     url: str | None = None
     score: float = 0.0
+    # JSON-encoded list[dict] — lab papers this one cites (lab-watch only), each
+    # {"title", "authors", "published_date"}
+    cited_lab_works: str = "[]"
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -90,6 +93,21 @@ class Feedback(SQLModel, table=True):
 # Engine / session management
 # ──────────────────────────────────────────────
 
+def _run_migrations(engine: Engine) -> None:
+    """Apply schema migrations that create_all can't handle (existing tables
+    aren't altered by create_all)."""
+    alter_migrations = [
+        "ALTER TABLE papers ADD COLUMN cited_lab_works TEXT DEFAULT '[]'",
+    ]
+    with engine.connect() as conn:
+        for sql in alter_migrations:
+            try:
+                conn.execute(text(sql))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
+
 def init_db(url: str | None = None) -> Engine:
     """Create the engine and all tables. Returns the engine."""
     global _engine
@@ -104,6 +122,7 @@ def init_db(url: str | None = None) -> Engine:
     else:
         _engine = create_engine(resolved)
     SQLModel.metadata.create_all(_engine)
+    _run_migrations(_engine)
     return _engine
 
 
@@ -131,11 +150,24 @@ def get_unseen_papers(session: Session, papers: list[Paper]) -> list[Paper]:
 
 
 def _upsert_paper(session: Session, paper: Paper) -> PaperDB:
-    """Insert a paper into the DB, or return existing row."""
+    """Insert a paper into the DB, or return existing row.
+
+    `cited_lab_works` only exists on LabPaper (lab-watch); plain Paper has none.
+    """
+    cited_works = getattr(paper, "cited_lab_works", None) or []
     existing = session.exec(
         select(PaperDB).where(PaperDB.source_id == paper.source_id)
     ).first()
     if existing:
+        if cited_works:
+            existing_works = json.loads(existing.cited_lab_works or "[]")
+            by_title = {w["title"]: w for w in existing_works}
+            for w in cited_works:
+                by_title.setdefault(w["title"], w)
+            merged = list(by_title.values())
+            if merged != existing_works:
+                existing.cited_lab_works = json.dumps(merged)
+                session.add(existing)
         return existing
     row = PaperDB(
         source=paper.source,
@@ -148,6 +180,7 @@ def _upsert_paper(session: Session, paper: Paper) -> PaperDB:
         doi=paper.doi,
         url=paper.url,
         score=paper.score,
+        cited_lab_works=json.dumps(cited_works),
     )
     session.add(row)
     session.flush()

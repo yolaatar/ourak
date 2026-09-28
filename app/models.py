@@ -26,7 +26,8 @@ class LabPaper(Paper):
 
     kind: Literal["authored", "citing"]
     lab_authors: list[str] = Field(default_factory=list)  # lab members on the paper
-    cited_lab_titles: list[str] = Field(default_factory=list)  # lab papers it cites
+    # lab papers it cites: [{"title", "authors", "published_date"}, ...]
+    cited_lab_works: list[dict] = Field(default_factory=list)
 
 
 class LabAuthor(BaseModel):
