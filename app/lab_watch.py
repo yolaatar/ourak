@@ -28,6 +28,7 @@ from app.sources.openalex import (
     fetch_lab_works,
     search_authors,
 )
+from app.sources.team_roster import fetch_team_roster
 
 logger = logging.getLogger(__name__)
 
@@ -73,13 +74,24 @@ def collect(
     fetch_citations=False skips the citation pipeline entirely (fetch_lab_works
     pages through every work the lab has ever published) — for a cheap daily
     run that only checks for newly authored papers.
+
+    Alumni are fetched from the team page and excluded from author-matching —
+    OpenAlex affiliation strings are stale, so someone who left the lab can
+    otherwise keep matching new, unrelated work forever. Fails open: a broken
+    fetch just disables alumni filtering for this run rather than failing it.
     """
-    authored = fetch_lab_papers(cfg, cfg.lookback_days)
+    try:
+        _current, alumni = fetch_team_roster()
+    except Exception as exc:
+        logger.warning("Failed to fetch team roster (%s) — alumni filtering disabled this run", exc)
+        alumni = frozenset()
+
+    authored = fetch_lab_papers(cfg, cfg.lookback_days, alumni=alumni)
     authored = dedup_papers(get_unseen_papers(session, authored))
 
     citing: list[LabPaper] = []
     if fetch_citations:
-        lab_works = fetch_lab_works(cfg)
+        lab_works = fetch_lab_works(cfg, alumni=alumni)
         logger.info("Lab has %d known works in OpenAlex", len(lab_works))
         citing = fetch_citing_papers(lab_works, cfg.lookback_days) if lab_works else []
         citing = dedup_papers(get_unseen_papers(session, citing))

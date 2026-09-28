@@ -135,24 +135,48 @@ def _lab_member_name(authorship: dict, by_orcid: dict, by_id: dict, by_name: dic
     return name
 
 
-def _match_lab_authors(work: dict, cfg: LabConfig) -> list[str]:
-    """Return the names of lab members on a work, in author-list order."""
+def _match_lab_authors(work: dict, cfg: LabConfig, alumni: frozenset = frozenset()) -> list[str]:
+    """Return the names of CURRENT lab members on a work, in author-list order.
+
+    Alumni matches (via any signal — ORCID, ID, name, or the affiliation-keyword
+    fallback) are excluded: OpenAlex affiliation strings are stale by nature, so
+    someone who left the lab can keep matching indefinitely otherwise. See
+    app/sources/team_roster.py.
+    """
     lookups = _lab_lookups(cfg)
     names: list[str] = []
     for authorship in work.get("authorships") or []:
         name = _lab_member_name(authorship, *lookups)
-        if name and name not in names:
+        if name and _norm_name(name) not in alumni and name not in names:
             names.append(name)
     return names
 
 
-def _is_first_author_from_lab(work: dict, cfg: LabConfig) -> bool:
-    """True if the first-listed author is a lab member — i.e. the lab drove this
-    work, as opposed to a lab member (often the PI) being a co-author elsewhere."""
+def _is_first_author_from_lab(work: dict, cfg: LabConfig, alumni: frozenset = frozenset()) -> bool:
+    """True if the work was driven by the CURRENT lab.
+
+    A current member leading it is the clear case. If the first author is an
+    alumnus, it still counts if a CURRENT member also co-authored it (e.g. the
+    supervising PI, on work published while that alumnus was still around) —
+    otherwise a legitimately lab-led paper like AxonDeepSeg would lose its
+    standing the moment its lead author graduated. It's only demoted when the
+    alumnus's name is the *only* lab connection on the paper at all, which is
+    the actual bug this guards against: their new work, after leaving, at a
+    different institution, still carrying a stale "NeuroPoly" affiliation.
+    """
     authorships = work.get("authorships") or []
     if not authorships:
         return False
-    return _lab_member_name(authorships[0], *_lab_lookups(cfg)) is not None
+    lookups = _lab_lookups(cfg)
+    first_name = _lab_member_name(authorships[0], *lookups)
+    if not first_name:
+        return False
+    if _norm_name(first_name) not in alumni:
+        return True
+    return any(
+        (name := _lab_member_name(a, *lookups)) and _norm_name(name) not in alumni
+        for a in authorships[1:]
+    )
 
 
 def _parse_work(work: dict, kind: str) -> LabPaper:
@@ -187,13 +211,17 @@ def _since(days_back: int) -> str:
 _LAB_WORK_FIELDS = "id,title,authorships,publication_date"
 
 
-def fetch_lab_works(cfg: LabConfig) -> dict[str, dict]:
+def fetch_lab_works(cfg: LabConfig, alumni: frozenset = frozenset()) -> dict[str, dict]:
     """Return every work ever written by the lab, as
     {work_id: {title, authors, published_date, is_first_author}}.
 
     is_first_author distinguishes lab-led work from work where a lab member
     (often the PI) is just a co-author elsewhere — used to rank the citations
-    digest so real lab output outranks high-citation-count noise.
+    digest so real lab output outranks high-citation-count noise. Works aren't
+    dropped based on alumni status here (that would erase legitimate historical
+    output like AxonDeepSeg from citation tracking); only is_first_author is
+    alumni-aware, so a genuinely external post-departure paper simply doesn't
+    get ranked as "lab-led" — see _is_first_author_from_lab.
 
     Not type-filtered: a paper citing the lab's software or dataset still counts.
     """
@@ -207,13 +235,18 @@ def fetch_lab_works(cfg: LabConfig) -> dict[str, dict]:
                 "title": w.get("title") or "",
                 "authors": [a for a in authors if a],
                 "published_date": w.get("publication_date"),
-                "is_first_author": _is_first_author_from_lab(w, cfg),
+                "is_first_author": _is_first_author_from_lab(w, cfg, alumni=alumni),
             }
     return works
 
 
-def fetch_lab_papers(cfg: LabConfig, days_back: int) -> list[LabPaper]:
-    """Fetch papers written by lab members in the last `days_back` days.
+def fetch_lab_papers(cfg: LabConfig, days_back: int, alumni: frozenset = frozenset()) -> list[LabPaper]:
+    """Fetch papers written by CURRENT lab members in the last `days_back` days.
+
+    A paper is dropped entirely if only alumni matched — in this recent window,
+    that's almost always someone's post-departure work at their new institution
+    still carrying a stale "NeuroPoly" affiliation, not a new lab paper worth
+    alerting on.
 
     Unlike the topic fetchers, errors propagate: a silent empty result would
     look like a quiet week instead of a failed run.
@@ -222,9 +255,12 @@ def fetch_lab_papers(cfg: LabConfig, days_back: int) -> list[LabPaper]:
     for f in _lab_filters(cfg):
         filter_str = f"{f},{_REPORT_TYPES},from_publication_date:{_since(days_back)}"
         for work in _get_all(filter_str, _WORK_FIELDS):
+            lab_authors = _match_lab_authors(work, cfg, alumni=alumni)
+            if not lab_authors:
+                continue
             paper = _parse_work(work, "authored")
-            paper.lab_authors = _match_lab_authors(work, cfg)
-            paper.is_first_author = _is_first_author_from_lab(work, cfg)
+            paper.lab_authors = lab_authors
+            paper.is_first_author = _is_first_author_from_lab(work, cfg, alumni=alumni)
             papers[paper.source_id] = paper
     return list(papers.values())
 

@@ -95,6 +95,8 @@ def lab_env(tmp_path, monkeypatch):
     )
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'lab.db'}")
     monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.com/services/test")
+    # avoid a real network call to the team page in every test
+    monkeypatch.setattr("app.lab_watch.fetch_team_roster", lambda *a, **kw: (set(), set()))
     return str(config)
 
 
@@ -103,8 +105,8 @@ def lab_env(tmp_path, monkeypatch):
 @patch("app.lab_watch.fetch_lab_works", return_value={"W100": "Old lab paper"})
 @patch("app.lab_watch.fetch_lab_papers")
 def test_run_posts_then_suppresses_seen(mock_lab, _works, mock_citing, mock_post, lab_env):
-    mock_lab.side_effect = lambda *a: [_paper(1, "authored")]
-    mock_citing.side_effect = lambda *a: [_paper(2, "citing"), _paper(3, "citing")]
+    mock_lab.side_effect = lambda *a, **kw: [_paper(1, "authored")]
+    mock_citing.side_effect = lambda *a, **kw: [_paper(2, "citing"), _paper(3, "citing")]
 
     assert run(lab_env) == (1, 2)
     assert mock_post.call_count == 1
@@ -115,9 +117,9 @@ def test_run_posts_then_suppresses_seen(mock_lab, _works, mock_citing, mock_post
 
 
 @patch("app.lab_watch.post_to_slack")
-@patch("app.lab_watch.fetch_citing_papers", side_effect=lambda *a: [_paper(2, "citing")])
+@patch("app.lab_watch.fetch_citing_papers", side_effect=lambda *a, **kw: [_paper(2, "citing")])
 @patch("app.lab_watch.fetch_lab_works", return_value={"W100": "Old lab paper"})
-@patch("app.lab_watch.fetch_lab_papers", side_effect=lambda *a: [_paper(1, "authored")])
+@patch("app.lab_watch.fetch_lab_papers", side_effect=lambda *a, **kw: [_paper(1, "authored")])
 def test_run_links_papers_to_lab_topics(_lab, _works, _citing, _post, lab_env):
     run(lab_env)
 
@@ -128,9 +130,9 @@ def test_run_links_papers_to_lab_topics(_lab, _works, _citing, _post, lab_env):
 
 
 @patch("app.lab_watch.post_to_slack", side_effect=RuntimeError("slack down"))
-@patch("app.lab_watch.fetch_citing_papers", side_effect=lambda *a: [])
+@patch("app.lab_watch.fetch_citing_papers", side_effect=lambda *a, **kw: [])
 @patch("app.lab_watch.fetch_lab_works", return_value={})
-@patch("app.lab_watch.fetch_lab_papers", side_effect=lambda *a: [_paper(1, "authored")])
+@patch("app.lab_watch.fetch_lab_papers", side_effect=lambda *a, **kw: [_paper(1, "authored")])
 def test_failed_post_does_not_mark_seen(_lab, _works, _citing, _post, lab_env):
     with pytest.raises(RuntimeError):
         run(lab_env)
@@ -140,9 +142,9 @@ def test_failed_post_does_not_mark_seen(_lab, _works, _citing, _post, lab_env):
 
 
 @patch("app.lab_watch.post_to_slack")
-@patch("app.lab_watch.fetch_citing_papers", side_effect=lambda *a: [])
+@patch("app.lab_watch.fetch_citing_papers", side_effect=lambda *a, **kw: [])
 @patch("app.lab_watch.fetch_lab_works", return_value={})
-@patch("app.lab_watch.fetch_lab_papers", side_effect=lambda *a: [_paper(1, "authored")])
+@patch("app.lab_watch.fetch_lab_papers", side_effect=lambda *a, **kw: [_paper(1, "authored")])
 def test_dry_run_neither_posts_nor_marks_seen(_lab, _works, _citing, mock_post, lab_env):
     assert run(lab_env, dry_run=True) == (1, 0)
     assert run(lab_env, dry_run=True) == (1, 0)
@@ -152,7 +154,7 @@ def test_dry_run_neither_posts_nor_marks_seen(_lab, _works, _citing, mock_post, 
 @patch("app.lab_watch.post_to_slack")
 @patch("app.lab_watch.fetch_citing_papers")
 @patch("app.lab_watch.fetch_lab_works")
-@patch("app.lab_watch.fetch_lab_papers", side_effect=lambda *a: [_paper(1, "authored")])
+@patch("app.lab_watch.fetch_lab_papers", side_effect=lambda *a, **kw: [_paper(1, "authored")])
 def test_authored_only_skips_citation_pipeline(mock_lab, mock_works, mock_citing, mock_post, lab_env):
     assert run(lab_env, fetch_citations=False) == (1, 0)
     mock_works.assert_not_called()
@@ -165,18 +167,18 @@ def test_authored_only_skips_citation_pipeline(mock_lab, mock_works, mock_citing
 
 
 @patch("app.lab_watch.post_to_slack")
-@patch("app.lab_watch.fetch_citing_papers", side_effect=lambda *a: [_paper(2, "citing")])
+@patch("app.lab_watch.fetch_citing_papers", side_effect=lambda *a, **kw: [_paper(2, "citing")])
 @patch("app.lab_watch.fetch_lab_works", return_value={"W100": "Old lab paper"})
-@patch("app.lab_watch.fetch_lab_papers", side_effect=lambda *a: [])
+@patch("app.lab_watch.fetch_lab_papers", side_effect=lambda *a, **kw: [])
 def test_no_authored_papers_skips_post_even_with_new_citations(_lab, _works, _citing, mock_post, lab_env):
     assert run(lab_env) == (0, 1)
     mock_post.assert_not_called()
 
 
 @patch("app.lab_watch.post_to_slack")
-@patch("app.lab_watch.fetch_citing_papers", side_effect=lambda *a: [_paper(2, "citing")])
+@patch("app.lab_watch.fetch_citing_papers", side_effect=lambda *a, **kw: [_paper(2, "citing")])
 @patch("app.lab_watch.fetch_lab_works", return_value={"W100": "Old lab paper"})
-@patch("app.lab_watch.fetch_lab_papers", side_effect=lambda *a: [])
+@patch("app.lab_watch.fetch_lab_papers", side_effect=lambda *a, **kw: [])
 def test_citation_pointer_posted_when_url_configured(_lab, _works, _citing, mock_post, lab_env, monkeypatch):
     monkeypatch.setenv("LAB_CITATIONS_URL", "https://example.github.io/lab/")
     assert run(lab_env) == (0, 1)

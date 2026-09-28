@@ -179,3 +179,43 @@ def test_is_first_author_from_lab_false_when_lab_member_is_last():
 
 def test_is_first_author_from_lab_false_with_no_authors():
     assert openalex._is_first_author_from_lab(_work("W1", "No authors"), CFG) is False
+
+
+# --- Alumni exclusion ---
+
+
+def test_match_lab_authors_excludes_alumni():
+    work = _work("W1", "Post-departure paper", authors=[
+        ("A1", "Jane Lab", "https://orcid.org/0000-0001-0000-0001", "NeuroPoly"),
+    ])
+    assert openalex._match_lab_authors(work, CFG, alumni=frozenset({"jane lab"})) == []
+
+
+def test_is_first_author_false_when_only_alumnus_matches():
+    # e.g. Jane Lab's new paper at her new institution, still tagged "NeuroPoly"
+    work = _work("W1", "New unrelated paper", authors=[
+        ("A1", "Jane Lab", "https://orcid.org/0000-0001-0000-0001", "NeuroPoly"),
+        ("A7", "Outsider", None, "Elsewhere"),
+    ])
+    assert openalex._is_first_author_from_lab(work, CFG, alumni=frozenset({"jane lab"})) is False
+
+
+def test_is_first_author_true_when_current_member_also_coauthored():
+    # AxonDeepSeg-style: Jane Lab (now alumna) led it, but Bob Lab (still current,
+    # e.g. the PI) co-authored — this is real historical lab output, keep it ranked
+    work = _work("W1", "AxonDeepSeg-like paper", authors=[
+        ("A1", "Jane Lab", "https://orcid.org/0000-0001-0000-0001", "NeuroPoly"),
+        ("A2", "Bob Lab", None, "NeuroPoly"),
+    ])
+    assert openalex._is_first_author_from_lab(work, CFG, alumni=frozenset({"jane lab"})) is True
+
+
+@patch("app.sources.openalex._get_all")
+def test_fetch_lab_papers_drops_alumni_only_matches(mock_get_all):
+    mock_get_all.return_value = [
+        _work("W1", "Alumna's new paper", authors=[
+            ("A1", "Jane Lab", "https://orcid.org/0000-0001-0000-0001", "NeuroPoly"),
+        ]),
+    ]
+    papers = openalex.fetch_lab_papers(CFG, days_back=30, alumni=frozenset({"jane lab"}))
+    assert papers == []
