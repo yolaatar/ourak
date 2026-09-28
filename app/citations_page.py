@@ -203,13 +203,12 @@ def build_citations_page(session: Session, lab_name: str, topic_name: str = CITI
 <body>
 <header class="topbar">
   <div class="logo">ourak<span>.</span></div>
-  <div class="topbarRight">Citations Digest</div>
+  <div class="topbarRight">Citations Digest &middot; Last fetched {updated}</div>
 </header>
 <main class="content">
   <h1>Who's citing {lab}</h1>
   <p class="subtitle">{subtitle}</p>
   {body}
-  <div class="updated">Updated {updated}</div>
 </main>
 </body>
 </html>"""
@@ -336,7 +335,6 @@ _STYLE = """
   .rowMeta { font-size: 12px; color: var(--color-text-secondary); margin-top: 3px; }
 
   .empty { color: var(--color-text-muted); font-size: 14px; padding: 48px 0; text-align: center; }
-  .updated { font-size: 11px; color: var(--color-text-muted); margin-top: 48px; }
 """
 
 
