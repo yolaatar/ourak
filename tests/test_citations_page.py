@@ -17,12 +17,13 @@ def db_session():
         yield session
 
 
-def _work(title, authors=None, published_date=None, is_first_author=False):
+def _work(title, authors=None, published_date=None, is_first_author=False, lab_coauthors=None):
     return {
         "title": title,
         "authors": authors or [],
         "published_date": published_date,
         "is_first_author": is_first_author,
+        "lab_coauthors": lab_coauthors or [],
     }
 
 
@@ -93,6 +94,30 @@ def test_lab_led_work_outranks_higher_citation_count(db_session):
 
     assert html_out.index("AxonDeepSeg") < html_out.index("Big Consortium Paper")
     assert "Lab-led" in html_out
+
+
+def test_shows_lab_coauthor_when_not_lab_led(db_session):
+    # PI buried past the "et al." cutoff on an outside consortium paper — not
+    # lab-led, but should still be called out since otherwise invisible
+    consortium = _work(
+        "Big Consortium Paper",
+        authors=["Outsider One", "Outsider Two", "Outsider Three", "Julien Cohen-Adad"],
+        is_first_author=False,
+        lab_coauthors=["Julien Cohen-Adad"],
+    )
+    mark_seen(db_session, [_citing(1, [consortium])], topic_id=None)
+    _link_to_citing_topic(db_session)
+
+    html_out = build_citations_page(db_session, "NeuroPoly")
+
+    assert 'class="groupCoauthor">Lab: Julien Cohen-Adad<' in html_out
+
+
+def test_no_coauthor_line_when_lab_led():
+    from app.citations_page import _group_html
+
+    axon = _work("AxonDeepSeg", authors=["A. Zaimi"], is_first_author=True, lab_coauthors=["A. Zaimi"])
+    assert "groupCoauthor" not in _group_html(axon, [])
 
 
 def test_grouped_by_month_newest_first(db_session):

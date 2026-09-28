@@ -219,3 +219,34 @@ def test_fetch_lab_papers_drops_alumni_only_matches(mock_get_all):
     ]
     papers = openalex.fetch_lab_papers(CFG, days_back=30, alumni=frozenset({"jane lab"}))
     assert papers == []
+
+
+@patch("app.sources.openalex._get_all")
+def test_fetch_lab_works_reports_current_lab_coauthors(mock_get_all):
+    # Jane Lab (alumna) leads it, Bob Lab (current) co-authors — not lab-led,
+    # but Bob should still be surfaced as the current-lab connection
+    mock_get_all.return_value = [
+        _work("W1", "AxonDeepSeg-like paper", authors=[
+            ("A1", "Jane Lab", "https://orcid.org/0000-0001-0000-0001", "NeuroPoly"),
+            ("A2", "Bob Lab", None, "NeuroPoly"),
+        ]),
+    ]
+    works = openalex.fetch_lab_works(CFG, alumni=frozenset({"jane lab"}))
+    assert works["W1"]["is_first_author"] is True  # Bob's presence keeps it lab-led
+    assert works["W1"]["lab_coauthors"] == ["Bob Lab"]
+
+
+@patch("app.sources.openalex._get_all")
+def test_fetch_lab_works_coauthor_on_not_lab_led_paper(mock_get_all):
+    # A total outsider leads a big consortium paper; Bob Lab is buried mid-list —
+    # not lab-led, but Bob is still the current-lab connection worth surfacing
+    mock_get_all.return_value = [
+        _work("W1", "Big Consortium Paper", authors=[
+            ("A7", "Outsider", None, "Elsewhere"),
+            ("A2", "Bob Lab", None, "NeuroPoly"),
+            ("A8", "Someone Else", None, "Elsewhere"),
+        ]),
+    ]
+    works = openalex.fetch_lab_works(CFG)
+    assert works["W1"]["is_first_author"] is False
+    assert works["W1"]["lab_coauthors"] == ["Bob Lab"]

@@ -213,7 +213,7 @@ _LAB_WORK_FIELDS = "id,title,authorships,publication_date"
 
 def fetch_lab_works(cfg: LabConfig, alumni: frozenset = frozenset()) -> dict[str, dict]:
     """Return every work ever written by the lab, as
-    {work_id: {title, authors, published_date, is_first_author}}.
+    {work_id: {title, authors, published_date, is_first_author, lab_coauthors}}.
 
     is_first_author distinguishes lab-led work from work where a lab member
     (often the PI) is just a co-author elsewhere — used to rank the citations
@@ -222,6 +222,11 @@ def fetch_lab_works(cfg: LabConfig, alumni: frozenset = frozenset()) -> dict[str
     output like AxonDeepSeg from citation tracking); only is_first_author is
     alumni-aware, so a genuinely external post-departure paper simply doesn't
     get ranked as "lab-led" — see _is_first_author_from_lab.
+
+    lab_coauthors is the current (non-alumni) lab members on the paper — useful
+    on its own for a not-lab-led work, since the PI/co-author is often buried
+    past the "et al." cutoff in the full author list and wouldn't otherwise
+    show up anywhere.
 
     Not type-filtered: a paper citing the lab's software or dataset still counts.
     """
@@ -236,6 +241,7 @@ def fetch_lab_works(cfg: LabConfig, alumni: frozenset = frozenset()) -> dict[str
                 "authors": [a for a in authors if a],
                 "published_date": w.get("publication_date"),
                 "is_first_author": _is_first_author_from_lab(w, cfg, alumni=alumni),
+                "lab_coauthors": _match_lab_authors(w, cfg, alumni=alumni),
             }
     return works
 

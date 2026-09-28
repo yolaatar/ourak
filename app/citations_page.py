@@ -114,7 +114,17 @@ def _group_html(cited_work: dict, papers: list[PaperDB]) -> str:
         p for p in [_authors_et_al(cited_work.get("authors") or []), cited_work.get("published_date")] if p
     )
     meta_html = f'<div class="groupMeta">{html.escape(meta)}</div>' if meta else ""
-    lab_led_badge = '<span class="labLedBadge">Lab-led</span>' if cited_work.get("is_first_author") else ""
+    is_lab_led = cited_work.get("is_first_author")
+    lab_led_badge = '<span class="labLedBadge">Lab-led</span>' if is_lab_led else ""
+
+    # Not lab-led, but a current member is still on it (often the PI, buried
+    # past the "et al." cutoff above) — call them out, since otherwise they
+    # wouldn't show up anywhere on this card at all.
+    coauthor_html = ""
+    if not is_lab_led:
+        coauthors = cited_work.get("lab_coauthors") or []
+        if coauthors:
+            coauthor_html = f'<div class="groupCoauthor">Lab: {html.escape(", ".join(coauthors))}</div>'
 
     return (
         '<div class="group">'
@@ -126,6 +136,7 @@ def _group_html(cited_work: dict, papers: list[PaperDB]) -> str:
         f'<span class="groupCount">{_count_label(len(papers))}</span>'
         "</div>"
         f"{meta_html}"
+        f"{coauthor_html}"
         "</div>"
         f'<ul class="groupList">{"".join(_paper_row(p) for p in papers)}</ul>'
         "</div>"
@@ -302,6 +313,7 @@ _STYLE = """
   }
   .groupHeaderTop { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
   .groupMeta { font-size: 12px; color: var(--color-text-secondary); margin-top: 4px; }
+  .groupCoauthor { font-size: 12px; color: var(--color-accent); margin-top: 4px; }
   .citesLabel {
     font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
     color: var(--color-accent); background: rgba(59, 130, 246, 0.15);
