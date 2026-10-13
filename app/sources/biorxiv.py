@@ -136,8 +136,7 @@ def fetch_biorxiv(topic: Topic, days_back: int, max_results: int) -> list[Paper]
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     if days_back is None:
-        logger.debug("bioRxiv skipped — no keyword search for relevance mode")
-        return []
+        days_back = 90  # no relevance-sort API — fall back to a broad recent window
 
     all_papers: list[Paper] = []
 

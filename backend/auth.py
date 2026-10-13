@@ -3,9 +3,12 @@
 import os
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Request, Response, HTTPException
+from fastapi import APIRouter, Depends, Request, Response, HTTPException
 from jose import JWTError, jwt
 from pydantic import BaseModel
+from sqlmodel import Session, select
+
+from app.db import UserDB, get_session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -19,17 +22,33 @@ def _get_password() -> str:
 
 
 class LoginRequest(BaseModel):
+    username: str
     password: str
 
 
 @router.post("/login")
-def login(body: LoginRequest, response: Response) -> dict:
-    """Validate shared password and set a signed JWT cookie."""
+def login(
+    body: LoginRequest,
+    response: Response,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Validate shared password, find-or-create user, set JWT cookie."""
     if body.password != _get_password():
         raise HTTPException(status_code=401, detail="Invalid password")
 
+    # Find or create user by username
+    user = session.exec(
+        select(UserDB).where(UserDB.name == body.username)
+    ).first()
+    if not user:
+        user = UserDB(name=body.username)
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+
     payload = {
-        "sub": "user",
+        "sub": body.username,
+        "user_id": user.id,
         "exp": datetime.now(timezone.utc) + timedelta(days=30),
     }
     token = jwt.encode(payload, _get_secret(), algorithm="HS256")
@@ -42,7 +61,7 @@ def login(body: LoginRequest, response: Response) -> dict:
         secure=is_prod,
         max_age=30 * 24 * 3600,
     )
-    return {"status": "ok"}
+    return {"status": "ok", "user_id": user.id, "username": user.name}
 
 
 @router.get("/logout")
@@ -52,12 +71,32 @@ def logout(response: Response) -> dict:
     return {"status": "ok"}
 
 
-def require_auth(request: Request) -> None:
-    """FastAPI dependency — validates JWT cookie, raises 401 if invalid."""
+@router.get("/me")
+def get_me(request: Request, session: Session = Depends(get_session)) -> dict:
+    """Return the current user from the JWT cookie."""
     token = request.cookies.get("session")
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
-        jwt.decode(token, _get_secret(), algorithms=["HS256"])
+        payload = jwt.decode(token, _get_secret(), algorithms=["HS256"])
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
+
+    username = payload.get("sub")
+    user = session.exec(select(UserDB).where(UserDB.name == username)).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    return {"id": user.id, "name": user.name}
+
+
+def require_auth(request: Request) -> str:
+    """FastAPI dependency — validates JWT cookie, returns username."""
+    token = request.cookies.get("session")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        payload = jwt.decode(token, _get_secret(), algorithms=["HS256"])
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    return payload.get("sub", "")

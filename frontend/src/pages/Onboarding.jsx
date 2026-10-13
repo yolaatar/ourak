@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { getPresets, generateTopics, runFirstPass, completeOnboarding } from "../api";
+import { getPresets, createPreset, deletePreset, generateTopics, runFirstPass, completeOnboarding } from "../api";
+import { useUser } from "../UserContext";
 import PaperCard from "../components/PaperCard";
 import styles from "./Onboarding.module.css";
 
-const TOTAL_STEPS = 4;
+const TOTAL_STEPS = 3;
 
 function StepIndicator({ step }) {
   return (
@@ -52,6 +53,74 @@ function TagEditor({ tags, onChange, type = "include" }) {
   );
 }
 
+// ── Preset Creator Form ──
+
+function PresetCreator({ onSave, onCancel }) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [includeAny, setIncludeAny] = useState([]);
+  const [includeAll, setIncludeAll] = useState([]);
+  const [exclude, setExclude] = useState([]);
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    if (!name.trim() || includeAny.length === 0) return;
+    setSaving(true);
+    try {
+      await onSave({ name, description, include_any: includeAny, include_all: includeAll, exclude });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className={styles.presetCreator}>
+      <h3 className={styles.presetCreatorTitle}>Create custom preset</h3>
+      <div className={styles.fieldGroup}>
+        <label className={styles.label}>Name</label>
+        <input
+          className={styles.input}
+          placeholder="e.g. spinal-cord-mri"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </div>
+      <div className={styles.fieldGroup}>
+        <label className={styles.label}>Description</label>
+        <input
+          className={styles.input}
+          placeholder="Short description of what this preset tracks"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </div>
+      <div className={styles.tagSection}>
+        <div className={styles.tagLabel}>Related terms (any match)</div>
+        <TagEditor tags={includeAny} onChange={setIncludeAny} />
+      </div>
+      <div className={styles.tagSection}>
+        <div className={styles.tagLabel}>Must contain (all required)</div>
+        <TagEditor tags={includeAll} onChange={setIncludeAll} type="required" />
+      </div>
+      <div className={styles.tagSection}>
+        <div className={styles.tagLabel}>Exclude</div>
+        <TagEditor tags={exclude} onChange={setExclude} type="exclude" />
+      </div>
+      <div className={styles.presetCreatorActions}>
+        <button className={styles.secondaryBtn} onClick={onCancel}>Cancel</button>
+        <button
+          className={styles.secondaryBtn}
+          onClick={handleSave}
+          disabled={saving || !name.trim() || includeAny.length === 0}
+          style={{ background: "var(--color-accent)", color: "white", borderColor: "var(--color-accent)" }}
+        >
+          {saving ? "Saving..." : "Save preset"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Step 1: Welcome ──
 
 function StepWelcome({ onNext }) {
@@ -61,16 +130,19 @@ function StepWelcome({ onNext }) {
   const [description, setDescription] = useState("");
   const [abstracts, setAbstracts] = useState([]);
   const [showAbstracts, setShowAbstracts] = useState(false);
-  const [userName, setUserName] = useState("");
-  const [userEmail, setUserEmail] = useState("");
+  const [showCreator, setShowCreator] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
+    loadPresets();
+  }, []);
+
+  function loadPresets() {
     getPresets()
       .then((data) => setPresets(data.presets || []))
       .catch(() => {});
-  }, []);
+  }
 
   function togglePreset(name) {
     setSelectedPresets((prev) => {
@@ -84,22 +156,32 @@ function StepWelcome({ onNext }) {
     });
   }
 
+  async function handleCreatePreset(data) {
+    await createPreset(data);
+    setShowCreator(false);
+    loadPresets();
+  }
+
+  async function handleDeletePreset(e, presetId) {
+    e.stopPropagation();
+    await deletePreset(presetId);
+    loadPresets();
+  }
+
   function handleUsePresets() {
-    if (!userName.trim() || !userEmail.trim() || selectedPresets.size === 0) return;
+    if (selectedPresets.size === 0) return;
     const topics = presets
       .filter((p) => selectedPresets.has(p.name))
-      .map(({ description: _, ...rest }) => rest);
+      .map(({ description: _, id: _id, created_by: _cb, ...rest }) => rest);
     onNext({
       topics,
       description: "",
-      userName,
-      userEmail,
       seedAbstracts: [],
     });
   }
 
   async function handleGenerate() {
-    if (!description.trim() || !userName.trim() || !userEmail.trim()) return;
+    if (!description.trim()) return;
     setLoading(true);
     setError("");
     try {
@@ -107,8 +189,6 @@ function StepWelcome({ onNext }) {
       onNext({
         topics: data.topics,
         description,
-        userName,
-        userEmail,
         seedAbstracts: abstracts.filter(Boolean),
       });
     } catch (err) {
@@ -125,28 +205,6 @@ function StepWelcome({ onNext }) {
         Pick from ready-made topic presets or describe your research to generate custom ones.
       </p>
 
-      <div className={styles.inlineFields}>
-        <div>
-          <label className={styles.label}>Your name</label>
-          <input
-            className={styles.input}
-            placeholder="Jane Doe"
-            value={userName}
-            onChange={(e) => setUserName(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className={styles.label}>Email</label>
-          <input
-            className={styles.input}
-            type="email"
-            placeholder="jane@lab.org"
-            value={userEmail}
-            onChange={(e) => setUserEmail(e.target.value)}
-          />
-        </div>
-      </div>
-
       {/* Mode selector */}
       <div className={styles.modeSelector}>
         <button
@@ -154,14 +212,20 @@ function StepWelcome({ onNext }) {
           data-active={mode === "presets"}
           onClick={() => setMode("presets")}
         >
-          Choose from presets
+          <span className={styles.modeBtnTitle}>Choose from presets</span>
+          <span className={styles.modeBtnHint}>
+            Pick from curated keyword sets. Best if your field is already listed.
+          </span>
         </button>
         <button
           className={styles.modeBtn}
           data-active={mode === "describe"}
           onClick={() => setMode("describe")}
         >
-          Describe my research
+          <span className={styles.modeBtnTitle}>Describe my research</span>
+          <span className={styles.modeBtnHint}>
+            An LLM generates keyword sets from your description. Best for niche or cross-disciplinary topics.
+          </span>
         </button>
       </div>
 
@@ -171,35 +235,78 @@ function StepWelcome({ onNext }) {
           <label className={styles.label}>Select topics</label>
           <div className={styles.presetGrid}>
             {presets.map((p) => (
-              <button
+              <div
                 key={p.name}
                 className={styles.presetCard}
                 data-selected={selectedPresets.has(p.name)}
                 onClick={() => togglePreset(p.name)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && togglePreset(p.name)}
               >
-                <span className={styles.presetName}>{p.name}</span>
+                <div className={styles.presetCardHeader}>
+                  <span className={styles.presetName}>{p.name}</span>
+                  {p.created_by && (
+                    <span className={styles.customBadge}>by {p.created_by}</span>
+                  )}
+                </div>
                 <span className={styles.presetDesc}>{p.description}</span>
                 <span className={styles.presetKeywords}>
                   {p.include_any.slice(0, 5).join(", ")}
                   {p.include_any.length > 5 && ` +${p.include_any.length - 5} more`}
                 </span>
-              </button>
+                {p.created_by && p.id && (
+                  <button
+                    className={styles.presetDeleteBtn}
+                    onClick={(e) => handleDeletePreset(e, p.id)}
+                    title="Delete preset"
+                  >
+                    x
+                  </button>
+                )}
+              </div>
             ))}
           </div>
 
-          <button
-            className={styles.primaryBtn}
-            onClick={handleUsePresets}
-            disabled={selectedPresets.size === 0 || !userName.trim() || !userEmail.trim()}
-          >
-            Use {selectedPresets.size} selected topic{selectedPresets.size !== 1 ? "s" : ""}
-          </button>
+          {showCreator ? (
+            <PresetCreator
+              onSave={handleCreatePreset}
+              onCancel={() => setShowCreator(false)}
+            />
+          ) : (
+            <button
+              className={styles.addTopic}
+              onClick={() => setShowCreator(true)}
+            >
+              + Create custom preset
+            </button>
+          )}
+
+          <div className={styles.stepActions}>
+            <button
+              className={styles.secondaryBtn}
+              onClick={() => setMode(null)}
+            >
+              Back
+            </button>
+            <button
+              className={styles.primaryBtn}
+              onClick={handleUsePresets}
+              disabled={selectedPresets.size === 0}
+              style={{ marginTop: 0 }}
+            >
+              Use {selectedPresets.size} selected topic{selectedPresets.size !== 1 ? "s" : ""}
+            </button>
+          </div>
         </div>
       )}
 
       {/* Description mode */}
       {mode === "describe" && (
         <>
+          <p className={styles.disclaimer}>
+            This uses free open-source LLM APIs to generate topics. The models can be busy at times, so generation may fail — just try again if it does.
+          </p>
           <div className={styles.fieldGroup}>
             <label className={styles.label}>Describe your research</label>
             <textarea
@@ -256,13 +363,22 @@ function StepWelcome({ onNext }) {
             </p>
           )}
 
-          <button
-            className={styles.primaryBtn}
-            onClick={handleGenerate}
-            disabled={loading || !description.trim() || !userName.trim() || !userEmail.trim()}
-          >
-            {loading ? "Generating topics..." : error ? "Try again" : "Generate my topics"}
-          </button>
+          <div className={styles.stepActions}>
+            <button
+              className={styles.secondaryBtn}
+              onClick={() => setMode(null)}
+            >
+              Back
+            </button>
+            <button
+              className={styles.primaryBtn}
+              onClick={handleGenerate}
+              disabled={loading || !description.trim()}
+              style={{ marginTop: 0 }}
+            >
+              {loading ? "Generating topics..." : error ? "Try again" : "Generate my topics"}
+            </button>
+          </div>
         </>
       )}
     </>
@@ -271,11 +387,11 @@ function StepWelcome({ onNext }) {
 
 // ── Step 2: Review topics ──
 
-function SourceStatus({ name, status }) {
-  const icon = status === "done" ? "+" : status === "failed" ? "x" : " ";
+function SourceStatus({ name, status, count }) {
+  const icon = status === "done" ? "✓" : status === "failed" ? "✗" : "·";
   const label =
     status === "done"
-      ? "done"
+      ? `${count ?? 0} papers`
       : status === "failed"
         ? "failed"
         : "searching...";
@@ -289,7 +405,7 @@ function SourceStatus({ name, status }) {
   );
 }
 
-function StepReviewTopics({ topics, onChange, onNext }) {
+function StepReviewTopics({ topics, onChange, onNext, onBack }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [sourceStatus, setSourceStatus] = useState({});
@@ -325,17 +441,24 @@ function StepReviewTopics({ topics, onChange, onNext }) {
       sources.map((s) => ({ key: `${s} — ${t.name}`, source: s, topic: t.name }))
     );
 
+    const doneCount = Object.values(sourceStatus).filter((e) => e.status === "done").length;
+    const totalCount = allKeys.length;
+
     return (
       <div className={styles.loadingState}>
         <h1 className={styles.title}>Searching for papers...</h1>
+        <p className={styles.progressSummary}>
+          {doneCount} / {totalCount} sources done
+        </p>
         <div className={styles.sourceList}>
-          {allKeys.map(({ key, source }) => {
+          {allKeys.map(({ key }) => {
             const entry = sourceStatus[key];
             return (
               <SourceStatus
                 key={key}
                 name={key}
                 status={entry?.status || "pending"}
+                count={entry?.count}
               />
             );
           })}
@@ -412,9 +535,14 @@ function StepReviewTopics({ topics, onChange, onNext }) {
 
       {error && <p className={styles.error}>{error}</p>}
 
-      <button className={styles.primaryBtn} onClick={handleFindPapers}>
-        Looks good, find papers
-      </button>
+      <div className={styles.stepActions}>
+        <button className={styles.secondaryBtn} onClick={onBack}>
+          Back
+        </button>
+        <button className={styles.primaryBtn} onClick={handleFindPapers} style={{ marginTop: 0 }}>
+          Looks good, find papers
+        </button>
+      </div>
     </>
   );
 }
@@ -423,7 +551,7 @@ function StepReviewTopics({ topics, onChange, onNext }) {
 
 function StepRatePapers({ papers, feedback, onFeedback, onNext, loading }) {
   const ratedCount = Object.keys(feedback).length;
-  const minRatings = Math.min(5, papers.length);
+  const minRatings = Math.min(3, papers.length);
 
   return (
     <>
@@ -456,37 +584,17 @@ function StepRatePapers({ papers, feedback, onFeedback, onNext, loading }) {
   );
 }
 
-// ── Step 4: Refined results ──
+// ── Step 4: Saving animation ──
 
-function StepRefined({ papers, userName, userEmail, onFinish, loading }) {
+function StepSaving() {
   return (
-    <>
-      <h1 className={styles.title}>Your refined feed</h1>
-      <p className={styles.subtitle}>
-        Based on your feedback, here are the top papers we think you'll care about.
+    <div className={styles.savingState}>
+      <div className={styles.savingOrb} />
+      <h1 className={styles.savingTitle}>Building your feed</h1>
+      <p className={styles.savingSubtitle}>
+        Calibrating relevance scores based on your feedback...
       </p>
-
-      <div className={styles.userInfo}>
-        <span className={styles.userInfoLabel}>Signed up as</span>
-        <span className={styles.userInfoValue}>
-          {userName} ({userEmail})
-        </span>
-      </div>
-
-      <div className={styles.paperList}>
-        {papers.map((paper) => (
-          <PaperCard
-            key={paper.source_id}
-            paper={paper}
-            showFeedback={false}
-          />
-        ))}
-      </div>
-
-      <button className={styles.primaryBtn} onClick={onFinish} disabled={loading}>
-        {loading ? "Saving..." : "Start using ourak"}
-      </button>
-    </>
+    </div>
   );
 }
 
@@ -494,26 +602,26 @@ function StepRefined({ papers, userName, userEmail, onFinish, loading }) {
 
 export default function Onboarding() {
   const navigate = useNavigate();
+  const { user } = useUser();
   const [step, setStep] = useState(1);
   const [topics, setTopics] = useState([]);
-  const [userName, setUserName] = useState("");
-  const [userEmail, setUserEmail] = useState("");
+  const [description, setDescription] = useState("");
   const [seedAbstracts, setSeedAbstracts] = useState([]);
   const [papers, setPapers] = useState([]);
-  const [refinedPapers, setRefinedPapers] = useState([]);
   const [feedback, setFeedback] = useState({});
   const [loading, setLoading] = useState(false);
 
-  function handleWelcomeNext({ topics: t, userName: n, userEmail: e, seedAbstracts: sa }) {
+  const userName = user?.name || "";
+
+  function handleWelcomeNext({ topics: t, description: d, seedAbstracts: sa }) {
     setTopics(t);
-    setUserName(n);
-    setUserEmail(e);
+    setDescription(d || "");
     setSeedAbstracts(sa || []);
     setStep(2);
   }
 
   async function handleFindPapers(onProgress) {
-    const data = await runFirstPass(topics, userEmail, userName, onProgress, seedAbstracts);
+    const data = await runFirstPass(topics, userName, onProgress, seedAbstracts, description);
     setPapers(data.papers);
     setStep(3);
   }
@@ -530,42 +638,26 @@ export default function Onboarding() {
   }
 
   async function handleRefine() {
-    setLoading(true);
+    setStep(4); // show saving animation immediately
     try {
       const fbList = Object.entries(feedback).map(([source_id, signal]) => ({
         source_id,
         signal,
       }));
-      const data = await completeOnboarding(userName, userEmail, topics, fbList);
-      localStorage.setItem("userId", data.user_id);
-      localStorage.setItem("userName", userName);
-      // For step 4, show the papers re-sorted by feedback
-      const upvoted = new Set(
-        fbList.filter((f) => f.signal === "upvote").map((f) => f.source_id)
-      );
-      const flagged = new Set(
-        fbList.filter((f) => f.signal === "flag").map((f) => f.source_id)
-      );
-      const sorted = [...papers]
-        .map((p) => ({
-          ...p,
-          score: p.score + (upvoted.has(p.source_id) ? 5 : 0) + (flagged.has(p.source_id) ? -10 : 0),
-        }))
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 10);
-      setRefinedPapers(sorted);
-      setStep(4);
-    } finally {
-      setLoading(false);
+      const data = await completeOnboarding(userName, topics, fbList);
+      const profileId = data.profile_id;
+      // Brief pause so the animation is visible
+      await new Promise((r) => setTimeout(r, 1500));
+      navigate(profileId ? `/digest?profile=${profileId}` : "/digest");
+    } catch {
+      // If it fails, go back to rating step
+      setStep(3);
     }
-  }
-
-  async function handleFinish() {
-    navigate("/digest");
   }
 
   return (
     <main className={styles.page}>
+      <button className={styles.brand} onClick={() => navigate("/digest")}>ourak<span>.</span></button>
       <StepIndicator step={step} />
 
       {step === 1 && <StepWelcome onNext={handleWelcomeNext} />}
@@ -575,6 +667,7 @@ export default function Onboarding() {
           topics={topics}
           onChange={setTopics}
           onNext={handleFindPapers}
+          onBack={() => setStep(1)}
         />
       )}
 
@@ -588,15 +681,7 @@ export default function Onboarding() {
         />
       )}
 
-      {step === 4 && (
-        <StepRefined
-          papers={refinedPapers}
-          userName={userName}
-          userEmail={userEmail}
-          onFinish={handleFinish}
-          loading={loading}
-        />
-      )}
+      {step === 4 && <StepSaving />}
     </main>
   );
 }

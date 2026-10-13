@@ -20,6 +20,16 @@ class Paper(BaseModel):
     score: float = 0.0
     alt_ids: list[str] = Field(default_factory=list)  # source_ids of merged duplicates
 
+    # OpenAlex-derived relevance signals (0/empty when the source doesn't provide them)
+    cited_by_count: int = 0
+    concepts: list[str] = Field(default_factory=list)  # OpenAlex's own ML-derived topic tags
+
+    # Set by the full-text verification pass (app/fulltext.py) — None until checked,
+    # "keyword_only" once scored without a full-text check, "mentioned"/"confirmed"
+    # once verified. Shown in the digest so ranking isn't just an opaque number.
+    evidence_tier: Optional[Literal["confirmed", "mentioned", "keyword_only"]] = None
+    evidence_snippet: Optional[str] = None
+
 
 class LabPaper(Paper):
     """A paper found by the lab watcher: written by the lab, or citing its work."""
@@ -59,6 +69,10 @@ class Topic(BaseModel):
     exclude: list[str] = Field(default_factory=list)
     boost_authors: list[str] = Field(default_factory=list)
     boost_venues: list[str] = Field(default_factory=list)
+    # OpenAlex work IDs ("W123...") or DOIs of papers this research builds on
+    # (e.g. AxonDeepSeg, SCT) — a paper citing one of these is relevant
+    # independent of keyword overlap. See app/sources/openalex_discovery.py.
+    seed_works: list[str] = Field(default_factory=list)
 
 
 class Config(BaseModel):

@@ -27,8 +27,8 @@ class UserDB(SQLModel, table=True):
     __tablename__ = "users"
 
     id: int | None = Field(default=None, primary_key=True)
-    name: str
-    email: str = Field(unique=True, index=True)
+    name: str = Field(unique=True, index=True)
+    email: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -59,7 +59,20 @@ class PaperDB(SQLModel, table=True):
     # JSON-encoded list[dict] — lab papers this one cites (lab-watch only), each
     # {"title", "authors", "published_date"}
     cited_lab_works: str = "[]"
+    # Set by app/fulltext.py's verification pass — see app/models.py::Paper
+    evidence_tier: str | None = None
+    evidence_snippet: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ProfileDB(SQLModel, table=True):
+    __tablename__ = "profiles"
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    name: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_fetched_at: datetime | None = None
 
 
 class UserTopicSubscription(SQLModel, table=True):
@@ -68,7 +81,9 @@ class UserTopicSubscription(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="users.id")
     topic_id: int = Field(foreign_key="topics.id")
+    profile_id: int | None = Field(default=None, foreign_key="profiles.id", index=True)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    term_boosts: str = "{}"  # JSON dict: term → float adjustment
 
 
 class PaperTopicLink(SQLModel, table=True):
@@ -77,6 +92,23 @@ class PaperTopicLink(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     paper_id: int = Field(foreign_key="papers.id", index=True)
     topic_id: int = Field(foreign_key="topics.id", index=True)
+    profile_id: int | None = Field(default=None, foreign_key="profiles.id", index=True)
+
+
+class PresetDB(SQLModel, table=True):
+    __tablename__ = "presets"
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int | None = Field(default=None, foreign_key="users.id")
+    name: str
+    description: str = ""
+    include_any: str = "[]"
+    include_all: str = "[]"
+    exclude: str = "[]"
+    boost_authors: str = "[]"
+    boost_venues: str = "[]"
+    is_builtin: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class Feedback(SQLModel, table=True):
@@ -94,10 +126,15 @@ class Feedback(SQLModel, table=True):
 # ──────────────────────────────────────────────
 
 def _run_migrations(engine: Engine) -> None:
-    """Apply schema migrations that create_all can't handle (existing tables
-    aren't altered by create_all)."""
+    """Apply schema migrations that create_all can't handle."""
     alter_migrations = [
+        "ALTER TABLE user_topic_subscriptions ADD COLUMN profile_id INTEGER REFERENCES profiles(id)",
+        "ALTER TABLE paper_topic_links ADD COLUMN profile_id INTEGER REFERENCES profiles(id)",
+        "ALTER TABLE profiles ADD COLUMN last_fetched_at DATETIME",
+        "ALTER TABLE user_topic_subscriptions ADD COLUMN term_boosts TEXT DEFAULT '{}'",
         "ALTER TABLE papers ADD COLUMN cited_lab_works TEXT DEFAULT '[]'",
+        "ALTER TABLE papers ADD COLUMN evidence_tier TEXT",
+        "ALTER TABLE papers ADD COLUMN evidence_snippet TEXT",
     ]
     with engine.connect() as conn:
         for sql in alter_migrations:
@@ -106,6 +143,28 @@ def _run_migrations(engine: Engine) -> None:
                 conn.commit()
             except Exception:
                 conn.rollback()
+
+        # Make users.email nullable (SQLite requires table recreation)
+        try:
+            # Check if email is still NOT NULL
+            result = conn.execute(text("PRAGMA table_info(users)")).fetchall()
+            email_col = [r for r in result if r[1] == "email"]
+            if email_col and email_col[0][3] == 1:  # notnull=1
+                conn.execute(text("""
+                    CREATE TABLE users_new (
+                        id INTEGER PRIMARY KEY,
+                        name VARCHAR UNIQUE NOT NULL,
+                        email VARCHAR,
+                        created_at DATETIME NOT NULL
+                    )
+                """))
+                conn.execute(text("INSERT INTO users_new SELECT * FROM users"))
+                conn.execute(text("DROP TABLE users"))
+                conn.execute(text("ALTER TABLE users_new RENAME TO users"))
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_name ON users (name)"))
+                conn.commit()
+        except Exception:
+            conn.rollback()
 
 
 def init_db(url: str | None = None) -> Engine:
@@ -123,6 +182,20 @@ def init_db(url: str | None = None) -> Engine:
         _engine = create_engine(resolved)
     SQLModel.metadata.create_all(_engine)
     _run_migrations(_engine)
+
+    # Enable WAL mode for SQLite (better concurrent read performance)
+    if "sqlite" in resolved:
+        with _engine.connect() as conn:
+            conn.execute(text("PRAGMA journal_mode=WAL"))
+            conn.commit()
+
+    return _engine
+
+
+def get_engine() -> Engine:
+    """Return the engine, initialising if needed."""
+    if _engine is None:
+        init_db()
     return _engine
 
 
@@ -150,7 +223,7 @@ def get_unseen_papers(session: Session, papers: list[Paper]) -> list[Paper]:
 
 
 def _upsert_paper(session: Session, paper: Paper) -> PaperDB:
-    """Insert a paper into the DB, or return existing row.
+    """Insert a paper into the DB, or update score if higher.
 
     `cited_lab_works` only exists on LabPaper (lab-watch); plain Paper has none.
     """
@@ -159,6 +232,13 @@ def _upsert_paper(session: Session, paper: Paper) -> PaperDB:
         select(PaperDB).where(PaperDB.source_id == paper.source_id)
     ).first()
     if existing:
+        # Update score if the new one is higher
+        if paper.score > (existing.score or 0):
+            existing.score = paper.score
+            if paper.evidence_tier:
+                existing.evidence_tier = paper.evidence_tier
+                existing.evidence_snippet = paper.evidence_snippet
+            session.add(existing)
         if cited_works:
             existing_works = json.loads(existing.cited_lab_works or "[]")
             by_title = {w["title"]: w for w in existing_works}
@@ -181,13 +261,20 @@ def _upsert_paper(session: Session, paper: Paper) -> PaperDB:
         url=paper.url,
         score=paper.score,
         cited_lab_works=json.dumps(cited_works),
+        evidence_tier=paper.evidence_tier,
+        evidence_snippet=paper.evidence_snippet,
     )
     session.add(row)
     session.flush()
     return row
 
 
-def mark_seen(session: Session, papers: list[Paper], topic_id: int | None = None) -> None:
+def mark_seen(
+    session: Session,
+    papers: list[Paper],
+    topic_id: int | None = None,
+    profile_id: int | None = None,
+) -> None:
     """Insert all papers (and their alt_ids) into the DB as seen.
 
     If topic_id is provided, also creates paper-topic links.
@@ -200,10 +287,13 @@ def mark_seen(session: Session, papers: list[Paper], topic_id: int | None = None
                 select(PaperTopicLink).where(
                     PaperTopicLink.paper_id == row.id,
                     PaperTopicLink.topic_id == topic_id,
+                    PaperTopicLink.profile_id == profile_id,
                 )
             ).first()
             if not existing_link:
-                session.add(PaperTopicLink(paper_id=row.id, topic_id=topic_id))
+                session.add(PaperTopicLink(
+                    paper_id=row.id, topic_id=topic_id, profile_id=profile_id,
+                ))
         # Also mark alt_ids so deduped variants don't resurface
         for alt_id in paper.alt_ids:
             if not is_seen(session, alt_id):

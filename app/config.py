@@ -28,3 +28,8 @@ def load_env(env_path: str = ".env") -> None:
     load_dotenv(dotenv_path=env_path, override=False)
 
 
+def get_ncbi_api_key() -> str | None:
+    """Optional NCBI E-utilities API key — raises PubMed's rate limit from 3 to 10 req/s."""
+    return os.getenv("NCBI_API_KEY") or None
+
+

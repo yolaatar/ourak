@@ -21,15 +21,19 @@ def _get_api_key() -> str | None:
     return os.getenv("S2_API_KEY") or None
 
 
+_MAX_QUERY_TERMS = 10  # S2 query length limit — scoring uses all terms
+
+
 def _build_query(topic: Topic) -> str:
     """Build a Semantic Scholar keyword query from a Topic.
 
-    S2 free-text search doesn't support boolean operators in the same way,
-    so we join include_any terms with | (OR) and append include_all terms with +.
+    Uses only the first _MAX_QUERY_TERMS include_any terms to avoid query
+    length issues. The full keyword list is used for scoring.
     """
     parts: list[str] = []
     if topic.include_any:
-        parts.append(" | ".join(f'"{t}"' for t in topic.include_any))
+        search_terms = topic.include_any[:_MAX_QUERY_TERMS]
+        parts.append(" | ".join(f'"{t}"' for t in search_terms))
     if topic.include_all:
         parts.extend(f'+"{t}"' for t in topic.include_all)
     return " ".join(parts)
@@ -136,9 +140,14 @@ def fetch_semantic_scholar(topic: Topic, days_back: int, max_results: int) -> li
         resp = requests.get(_S2_SEARCH_URL, params=params, headers=headers, timeout=30)
 
         if resp.status_code == 400:
-            # S2 returns 400 for some complex queries; log and bail gracefully
             logger.warning("S2 returned 400 for topic %s — query may be unsupported", topic.name)
             return []
+
+        if resp.status_code == 403 and api_key:
+            # Key invalid/expired — retry without auth key
+            logger.warning("S2 returned 403 with API key — retrying without key")
+            resp = requests.get(_S2_SEARCH_URL, params=params, timeout=30)
+            sleep_s = _SLEEP_UNAUTH
 
         resp.raise_for_status()
         time.sleep(sleep_s)

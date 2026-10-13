@@ -4,6 +4,22 @@
   padding: var(--space-8) var(--space-6);
 }
 
+.brand {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  letter-spacing: -0.02em;
+  margin-bottom: var(--space-4);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.brand span {
+  color: var(--color-accent);
+}
+
 .stepIndicator {
   display: flex;
   gap: var(--space-2);
@@ -341,6 +357,14 @@
   padding: var(--space-8) 0;
 }
 
+.progressSummary {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin-top: var(--space-2);
+  margin-bottom: 0;
+  font-variant-numeric: tabular-nums;
+}
+
 .loadingText {
   font-size: 14px;
   color: var(--color-text-secondary);
@@ -423,15 +447,31 @@
 
 .modeBtn {
   flex: 1;
-  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface);
   color: var(--color-text-secondary);
   font-size: 14px;
   font-weight: 500;
-  text-align: center;
+  text-align: left;
   transition: all 200ms ease;
+}
+
+.modeBtnTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.modeBtnHint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--color-text-muted);
+  line-height: 1.4;
 }
 
 .modeBtn:hover {
@@ -459,6 +499,7 @@
 }
 
 .presetCard {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -490,8 +531,154 @@
   color: var(--color-text-secondary);
 }
 
+.presetCardHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.customBadge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--color-accent);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.presetDeleteBtn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: none;
+  border: none;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  opacity: 0;
+  transition: opacity 200ms ease;
+}
+
+.presetCard:hover .presetDeleteBtn {
+  opacity: 1;
+}
+
+.presetDeleteBtn:hover {
+  color: var(--color-danger);
+}
+
 .presetKeywords {
   font-size: 11px;
   color: var(--color-text-muted);
   margin-top: 2px;
+}
+
+/* Preset creator */
+
+.presetCreator {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  margin-top: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.presetCreatorTitle {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: var(--space-4);
+}
+
+.presetCreatorActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+}
+
+.presetCreatorActions .primaryBtn {
+  margin-top: 0;
+}
+
+.secondaryBtn {
+  height: 36px;
+  padding: 8px 16px;
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 200ms ease;
+}
+
+.secondaryBtn:hover {
+  border-color: #3d4155;
+  color: var(--color-text-primary);
+}
+
+.stepActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+}
+
+/* Saving animation */
+
+.savingState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-12) 0;
+  text-align: center;
+}
+
+.savingOrb {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  margin-bottom: var(--space-6);
+  animation: orbPulse 1.8s ease-in-out infinite;
+  box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+}
+
+@keyframes orbPulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+  }
+  50% {
+    transform: scale(1.15);
+    box-shadow: 0 0 0 20px rgba(59, 130, 246, 0);
+  }
+}
+
+.savingTitle {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-2);
+}
+
+.savingSubtitle {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  animation: skeleton 1.5s ease-in-out infinite;
+}
+
+.disclaimer {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  line-height: 1.5;
 }

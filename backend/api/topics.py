@@ -9,11 +9,27 @@ router = APIRouter(prefix="/topics", tags=["topics"])
 
 
 @router.get("")
-def list_topics(session: Session = Depends(get_session)) -> list[dict]:
-    """Return all topics, lab topics first."""
-    topics = session.exec(
-        select(TopicDB).order_by(TopicDB.is_lab_topic.desc(), TopicDB.name)
-    ).all()
+def list_topics(
+    profile_id: int | None = None,
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    """Return topics, optionally filtered by profile."""
+    if profile_id:
+        subs = session.exec(
+            select(UserTopicSubscription).where(
+                UserTopicSubscription.profile_id == profile_id
+            )
+        ).all()
+        topic_ids = [s.topic_id for s in subs]
+        if not topic_ids:
+            return []
+        topics = session.exec(
+            select(TopicDB).where(TopicDB.id.in_(topic_ids))
+        ).all()
+    else:
+        topics = session.exec(
+            select(TopicDB).order_by(TopicDB.is_lab_topic.desc(), TopicDB.name)
+        ).all()
     return [
         {
             "id": t.id,

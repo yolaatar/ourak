@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 import yaml
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import Session, select
@@ -17,15 +17,19 @@ from sqlmodel import Session, select
 from app.db import (
     Feedback,
     PaperDB,
+    PaperTopicLink,
+    PresetDB,
+    ProfileDB,
     TopicDB,
     UserDB,
     UserTopicSubscription,
+    get_engine,
     get_session,
     mark_seen,
 )
 from app.dedup import dedup_papers
 from app.models import Paper, Topic
-from app.scoring import score_paper, score_papers
+from app.scoring import compute_term_boosts, score_paper, score_papers
 from app.sources.arxiv import fetch_arxiv
 from app.sources.biorxiv import fetch_biorxiv
 from app.sources.paperswithcode import fetch_paperswithcode
@@ -57,9 +61,10 @@ class TopicDict(BaseModel):
 
 class FirstPassRequest(BaseModel):
     topics: list[TopicDict]
-    user_email: str
-    user_name: str
+    user_name: str = ""
+    user_email: str = ""
     seed_abstracts: list[str] = []
+    description: str = ""
 
 
 class FeedbackItem(BaseModel):
@@ -69,7 +74,8 @@ class FeedbackItem(BaseModel):
 
 class CompleteRequest(BaseModel):
     user_name: str
-    user_email: str
+    user_email: str = ""
+    profile_name: str = ""
     topics: list[TopicDict]
     feedback: list[FeedbackItem] = []
 
@@ -77,7 +83,14 @@ class CompleteRequest(BaseModel):
 # --- Helpers ---
 
 
-def _call_llm(prompt: str) -> str:
+_DEFAULT_SYSTEM = (
+    "You are a research assistant configuring a paper-watching tool. "
+    "Extract technical keywords from the user's research description "
+    "and seed papers. Output ONLY valid YAML, no markdown fences, no explanation."
+)
+
+
+def _call_llm(prompt: str, system_prompt: str = _DEFAULT_SYSTEM, max_tokens: int = 1024) -> str:
     """Call OpenRouter and return the response content."""
     api_key = os.getenv("OPENROUTER_API_KEY")
     model = os.getenv("OPENROUTER_MODEL", "openai/gpt-oss-120b:free")
@@ -90,14 +103,10 @@ def _call_llm(prompt: str) -> str:
         json={
             "model": model,
             "messages": [
-                {"role": "system", "content": (
-                    "You are a research assistant configuring a paper-watching tool. "
-                    "Extract technical keywords from the user's research description "
-                    "and seed papers. Output ONLY valid YAML, no markdown fences, no explanation."
-                )},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt},
             ],
-            "max_tokens": 1024,
+            "max_tokens": max_tokens,
             "temperature": 0.3,
         },
         headers={
@@ -113,6 +122,60 @@ def _call_llm(prompt: str) -> str:
     if not content:
         raise HTTPException(status_code=500, detail="LLM returned empty content — try again")
     return content.strip()
+
+
+def _rerank_with_llm(papers: list, description: str, topics: list) -> list:
+    """Re-rank papers by semantic relevance. Falls back to original order on any failure."""
+    if len(papers) <= 1:
+        return papers
+
+    if description.strip():
+        research_context = description.strip()
+    else:
+        keywords = []
+        for t in topics:
+            keywords.extend(t.include_any[:5])
+            keywords.extend(t.include_all)
+        research_context = "Research focused on: " + ", ".join(keywords)
+
+    lines = []
+    for i, p in enumerate(papers, 1):
+        snippet = (p.abstract or "")[:250].replace("\n", " ")
+        lines.append(f"{i}. {p.title}\n   {snippet}")
+
+    prompt = (
+        f"Re-rank these papers from most to least relevant for this researcher:\n\n"
+        f"RESEARCH FOCUS:\n{research_context}\n\n"
+        f"PAPERS:\n" + "\n\n".join(lines) + "\n\n"
+        f"Output ONLY a comma-separated list of paper numbers ranked from most to least relevant.\n"
+        f"Example: 3,1,7,5,2,4,6\nNo explanation, no other text."
+    )
+
+    system = (
+        "You are a research paper relevance expert. "
+        "Output ONLY a comma-separated list of integers. No explanation."
+    )
+
+    try:
+        raw = _call_llm(prompt, system_prompt=system, max_tokens=128)
+        indices = []
+        for token in raw.replace("\n", ",").split(","):
+            token = token.strip().strip(".")
+            if token.isdigit():
+                idx = int(token)
+                if 1 <= idx <= len(papers) and idx not in indices:
+                    indices.append(idx)
+        if not indices:
+            return papers
+        reranked = [papers[i - 1] for i in indices]
+        ranked_set = set(indices)
+        for i in range(1, len(papers) + 1):
+            if i not in ranked_set:
+                reranked.append(papers[i - 1])
+        return reranked
+    except Exception as exc:
+        logger.warning("LLM re-ranking failed, keeping keyword order: %s", exc)
+        return papers
 
 
 _FETCHER_NAMES = [
@@ -221,21 +284,120 @@ def _load_templates_parsed() -> list[dict]:
 
 
 @router.get("/presets")
-def get_presets() -> dict:
-    """Return available topic presets from templates."""
-    templates = _load_templates_parsed()
+def get_presets(session: Session = Depends(get_session)) -> dict:
+    """Return available topic presets: DB presets first, then YAML built-ins (deduplicated)."""
     presets = []
-    for t in templates:
+    seen_names: set[str] = set()
+
+    # DB presets (user-created) — these take priority
+    db_presets = session.exec(select(PresetDB)).all()
+    for p in db_presets:
+        # Look up creator username
+        creator = None
+        if p.user_id:
+            user = session.get(UserDB, p.user_id)
+            if user:
+                creator = user.name
         presets.append({
-            "name": t.get("name", ""),
+            "id": p.id,
+            "name": p.name,
+            "description": p.description,
+            "include_any": json.loads(p.include_any),
+            "include_all": json.loads(p.include_all),
+            "exclude": json.loads(p.exclude),
+            "boost_authors": json.loads(p.boost_authors),
+            "boost_venues": json.loads(p.boost_venues),
+            "source": "custom",
+            "created_by": creator,
+        })
+        seen_names.add(p.name)
+
+    # YAML built-in templates — only add if not already in DB
+    templates = _load_templates_parsed()
+    for t in templates:
+        name = t.get("name", "")
+        if name in seen_names:
+            continue
+        presets.append({
+            "id": None,
+            "name": name,
             "description": t.get("description", ""),
             "include_any": t.get("include_any", []),
             "include_all": t.get("include_all", []),
             "exclude": t.get("exclude", []),
             "boost_authors": t.get("boost_authors", []),
             "boost_venues": t.get("boost_venues", []),
+            "source": "builtin",
+            "created_by": None,
         })
+        seen_names.add(name)
+
     return {"presets": presets}
+
+
+class PresetCreateRequest(BaseModel):
+    name: str
+    description: str = ""
+    include_any: list[str] = []
+    include_all: list[str] = []
+    exclude: list[str] = []
+    boost_authors: list[str] = []
+    boost_venues: list[str] = []
+
+
+@router.post("/presets")
+def create_preset(
+    body: PresetCreateRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Create a user-defined preset."""
+    # Get user from JWT
+    user_id = None
+    from backend.auth import _get_secret
+    from jose import jwt as jose_jwt
+    token = request.cookies.get("session")
+    if token:
+        try:
+            payload = jose_jwt.decode(token, _get_secret(), algorithms=["HS256"])
+            username = payload.get("sub")
+            user = session.exec(select(UserDB).where(UserDB.name == username)).first()
+            if user:
+                user_id = user.id
+        except Exception:
+            pass
+
+    preset = PresetDB(
+        user_id=user_id,
+        name=body.name,
+        description=body.description,
+        include_any=json.dumps(body.include_any),
+        include_all=json.dumps(body.include_all),
+        exclude=json.dumps(body.exclude),
+        boost_authors=json.dumps(body.boost_authors),
+        boost_venues=json.dumps(body.boost_venues),
+        is_builtin=False,
+    )
+    session.add(preset)
+    session.commit()
+    session.refresh(preset)
+    return {"id": preset.id, "status": "ok"}
+
+
+@router.delete("/presets/{preset_id}")
+def delete_preset(
+    preset_id: int,
+    session: Session = Depends(get_session),
+) -> dict:
+    """Delete a user-created preset."""
+    preset = session.get(PresetDB, preset_id)
+    if not preset:
+        raise HTTPException(status_code=404, detail="Preset not found")
+    if preset.is_builtin:
+        raise HTTPException(status_code=403, detail="Cannot delete built-in presets")
+    session.delete(preset)
+    session.commit()
+    return {"status": "ok"}
 
 
 @router.post("/generate-topics")
@@ -338,6 +500,10 @@ def run_first_pass(body: FirstPassRequest):
                 try:
                     papers = future.result()
                     all_papers.extend(papers)
+                    logger.info(
+                        "✓ %s → %s: %d papers",
+                        source_name, topic_name, len(papers),
+                    )
                     q.put(_sse_event({
                         "type": "progress",
                         "source": source_name,
@@ -348,7 +514,9 @@ def run_first_pass(body: FirstPassRequest):
                         "total": total_jobs,
                     }))
                 except Exception as exc:
-                    logger.warning("%s failed for %s: %s", source_name, topic_name, exc)
+                    logger.error(
+                        "✗ %s → %s FAILED: %s", source_name, topic_name, exc,
+                    )
                     q.put(_sse_event({
                         "type": "progress",
                         "source": source_name,
@@ -360,7 +528,11 @@ def run_first_pass(body: FirstPassRequest):
                     }))
 
         # Dedup across all sources and topics
+        raw_count = len(all_papers)
         all_papers = dedup_papers(all_papers)
+        logger.info(
+            "First pass: %d raw → %d after dedup", raw_count, len(all_papers),
+        )
 
         # Filter out seed papers (papers whose abstract matches a pasted seed)
         if body.seed_abstracts:
@@ -410,8 +582,30 @@ def run_first_pass(body: FirstPassRequest):
                     seen_ids.add(paper.source_id)
                 if len(sample) >= 10:
                     break
-        # Final sort by score for display
+        # Final sort by keyword score, then LLM re-rank for semantic relevance
         sample.sort(key=lambda p: p.score, reverse=True)
+        sample = _rerank_with_llm(sample, body.description, topics)
+
+        # Log topic distribution in sample
+        topic_counts = {}
+        for name, bucket in topic_buckets.items():
+            topic_counts[name] = len(bucket)
+        logger.info(
+            "Topic buckets: %s | Sample: %d papers",
+            ", ".join(f"{k}={v}" for k, v in topic_counts.items()),
+            len(sample),
+        )
+
+        # Persist all papers to DB (no topic/profile links yet)
+        # so complete_onboarding doesn't need to re-fetch
+        try:
+            engine = get_engine()
+            from sqlmodel import Session as DBSession
+            with DBSession(engine) as db_session:
+                mark_seen(db_session, all_papers)
+                logger.info("Persisted %d papers to DB during first pass", len(all_papers))
+        except Exception as exc:
+            logger.warning("Failed to persist first-pass papers: %s", exc)
 
         # Save run to log for analysis
         _save_run_log(body, topics, all_papers, sample)
@@ -439,18 +633,26 @@ def complete_onboarding(
     body: CompleteRequest,
     session: Session = Depends(get_session),
 ) -> dict:
-    """Create user, save topics, persist papers and feedback."""
-    # 1. Create user
-    existing = session.exec(select(UserDB).where(UserDB.email == body.user_email)).first()
+    """Create/find user, create profile, save topics, persist papers and feedback."""
+    # 1. Find or create user
+    existing = session.exec(select(UserDB).where(UserDB.name == body.user_name)).first()
     if existing:
         user = existing
     else:
-        user = UserDB(name=body.user_name, email=body.user_email)
+        user = UserDB(name=body.user_name)
         session.add(user)
         session.commit()
         session.refresh(user)
 
-    # 2. Save topics + subscriptions
+    # 2. Create profile
+    from datetime import datetime, timezone as tz
+    profile_name = body.profile_name or ", ".join(t.name for t in body.topics)
+    profile = ProfileDB(user_id=user.id, name=profile_name, last_fetched_at=datetime.now(tz.utc))
+    session.add(profile)
+    session.commit()
+    session.refresh(profile)
+
+    # 3. Save topics + subscriptions linked to profile
     for topic_dict in body.topics:
         topic_data = topic_dict.model_dump()
         existing_topic = session.exec(
@@ -459,6 +661,8 @@ def complete_onboarding(
 
         if existing_topic:
             db_topic = existing_topic
+            # Update config if changed
+            db_topic.config_yaml = yaml.dump(topic_data)
         else:
             db_topic = TopicDB(
                 name=topic_data["name"],
@@ -469,31 +673,62 @@ def complete_onboarding(
             session.commit()
             session.refresh(db_topic)
 
-        # Create subscription if not exists
-        existing_sub = session.exec(
-            select(UserTopicSubscription).where(
-                UserTopicSubscription.user_id == user.id,
-                UserTopicSubscription.topic_id == db_topic.id,
-            )
-        ).first()
-        if not existing_sub:
-            session.add(UserTopicSubscription(user_id=user.id, topic_id=db_topic.id))
+        session.add(UserTopicSubscription(
+            user_id=user.id, topic_id=db_topic.id, profile_id=profile.id,
+        ))
 
     session.commit()
 
-    # 3. Run pipeline to get papers for saving (per-topic so we can link them)
+    # 4. Link existing papers to profile (papers were persisted during run_first_pass)
+    all_db_papers = session.exec(select(PaperDB)).all()
     for topic_dict in body.topics:
         topic = Topic(**topic_dict.model_dump())
-        # Find the matching TopicDB row for linking
         db_topic = session.exec(
             select(TopicDB).where(TopicDB.name == topic.name)
         ).first()
-        papers = _fetch_all_sources(topic, days_back=90, max_results=20)
-        papers = dedup_papers(papers)
-        papers = score_papers(papers, topic)
-        mark_seen(session, papers, topic_id=db_topic.id if db_topic else None)
+        if not db_topic:
+            continue
 
-    # 4. Save feedback
+        # Score each paper against this topic and link if relevant
+        for paper_row in all_db_papers:
+            p = Paper(
+                source=paper_row.source,
+                source_id=paper_row.source_id,
+                title=paper_row.title or "",
+                abstract=paper_row.abstract or "",
+                authors=json.loads(paper_row.authors) if paper_row.authors else [],
+                published_date=paper_row.published_date,
+                journal=paper_row.journal,
+                doi=paper_row.doi,
+                url=paper_row.url,
+            )
+            s = score_paper(p, topic)
+            if s <= 0:
+                continue
+
+            # Update score in DB if higher
+            if s > (paper_row.score or 0):
+                paper_row.score = s
+                session.add(paper_row)
+
+            # Create link to profile
+            existing_link = session.exec(
+                select(PaperTopicLink).where(
+                    PaperTopicLink.paper_id == paper_row.id,
+                    PaperTopicLink.topic_id == db_topic.id,
+                    PaperTopicLink.profile_id == profile.id,
+                )
+            ).first()
+            if not existing_link:
+                session.add(PaperTopicLink(
+                    paper_id=paper_row.id,
+                    topic_id=db_topic.id,
+                    profile_id=profile.id,
+                ))
+
+    session.commit()
+
+    # 5. Save feedback
     for fb_item in body.feedback:
         paper_row = session.exec(
             select(PaperDB).where(PaperDB.source_id == fb_item.source_id)
@@ -507,4 +742,61 @@ def complete_onboarding(
 
     session.commit()
 
-    return {"user_id": user.id}
+    # 6. Compute term boosts from feedback and re-score papers
+    upvoted_ids = {f.source_id for f in body.feedback if f.signal == "upvote"}
+    flagged_ids = {f.source_id for f in body.feedback if f.signal == "flag"}
+    all_db_papers_map = {p.source_id: p for p in session.exec(select(PaperDB)).all()}
+
+    def _to_paper(row: PaperDB) -> Paper:
+        return Paper(
+            source=row.source, source_id=row.source_id,
+            title=row.title or "", abstract=row.abstract or "",
+            authors=json.loads(row.authors) if row.authors else [],
+            published_date=row.published_date, journal=row.journal,
+            doi=row.doi, url=row.url,
+        )
+
+    for topic_dict in body.topics:
+        topic = Topic(**topic_dict.model_dump())
+        db_topic = session.exec(select(TopicDB).where(TopicDB.name == topic.name)).first()
+        if not db_topic:
+            continue
+
+        upvoted = [_to_paper(all_db_papers_map[sid]) for sid in upvoted_ids if sid in all_db_papers_map]
+        flagged  = [_to_paper(all_db_papers_map[sid]) for sid in flagged_ids  if sid in all_db_papers_map]
+        boosts = compute_term_boosts(upvoted, flagged, topic)
+
+        # Persist boosts in the subscription
+        sub = session.exec(
+            select(UserTopicSubscription).where(
+                UserTopicSubscription.user_id == user.id,
+                UserTopicSubscription.topic_id == db_topic.id,
+                UserTopicSubscription.profile_id == profile.id,
+            )
+        ).first()
+        if sub:
+            sub.term_boosts = json.dumps(boosts)
+            session.add(sub)
+
+        if not boosts:
+            continue
+
+        # Re-score papers linked to this profile+topic with the adjusted weights
+        links = session.exec(
+            select(PaperTopicLink).where(
+                PaperTopicLink.topic_id == db_topic.id,
+                PaperTopicLink.profile_id == profile.id,
+            )
+        ).all()
+        for link in links:
+            paper_row = session.get(PaperDB, link.paper_id)
+            if not paper_row:
+                continue
+            p = _to_paper(paper_row)
+            new_score = score_paper(p, topic, term_boosts=boosts)
+            paper_row.score = new_score
+            session.add(paper_row)
+
+    session.commit()
+
+    return {"user_id": user.id, "profile_id": profile.id}

@@ -4,19 +4,21 @@ Research paper discovery tool for biomedical AI labs. Aggregates papers from mul
 
 ## Features
 
-- **Multi-source fetching:** arXiv, Semantic Scholar, bioRxiv, Papers With Code
+- **Multi-source fetching:** arXiv, Semantic Scholar, bioRxiv, Papers With Code, PubMed, OpenAlex
 - **Onboarding wizard:** describe your research, get auto-generated topic configurations from curated templates
-- **Keyword scoring:** papers scored by include/exclude keyword matching, author/venue boosts, and recency
-- **Deduplication:** cross-source fuzzy dedup by title similarity and DOI/arXiv ID matching
+- **Relevance scoring:** keyword matching (include/exclude, author/venue boosts, recency) plus OpenAlex-derived signals that don't depend on literal wording — concept-tag overlap, citation count, and whether a paper cites something your own research already builds on (`topic.seed_works`)
+- **Full-text evidence tiers:** papers whose keyword score alone is ambiguous get a full-text check (via Europe PMC / Unpaywall) instead of trusting the abstract — each paper is labeled `confirmed` / `mentioned` / `keyword_only` with a quoted snippet, shown in the digest and Slack message so ranking isn't an opaque number
+- **Deduplication:** cross-source fuzzy dedup by title similarity and DOI/arXiv ID matching, plus an OpenAlex canonical-work pass that catches preprint-vs-published-version pairs with different DOIs
 - **Digest page:** filter by topic, sort by relevance or date, filter by source
 - **Feedback loop:** upvote/flag papers to calibrate future results
-- **Automated digest:** GitHub Actions cron job for weekly email/Slack digests
+- **Automated digest:** GitHub Actions cron job for a weekly digest, posted to Slack
 
 ## Stack
 
 - **Backend:** Python, FastAPI, SQLModel (SQLite), OpenRouter LLM
 - **Frontend:** React 18, Vite, CSS Modules (dark theme)
-- **Sources:** arXiv, Semantic Scholar, bioRxiv, Papers With Code
+- **Sources:** arXiv, Semantic Scholar, bioRxiv, Papers With Code, PubMed, OpenAlex
+- **System dependency:** `poppler-utils` (`pdftotext`) — used by the full-text evidence pass to extract text from open-access PDFs. Install via `apt-get install poppler-utils` (Linux) or `brew install poppler` (macOS).
 
 ## Dev Setup
 
@@ -36,7 +38,7 @@ Open `.env` and fill in the values below.
 | `S2_API_KEY` | No | [semanticscholar.org/product/api](https://www.semanticscholar.org/product/api) | App runs on free-tier Semantic Scholar rate limits |
 | `DATABASE_URL` | No | SQLAlchemy URL | Defaults to `sqlite:///data/paperwatch.db` |
 | `FRONTEND_URL` | No | Your frontend URL | Only needed if frontend runs on a different domain |
-| `SLACK_WEBHOOK_URL` | No | Slack app settings | Disables Slack digest notifications |
+| `SLACK_WEBHOOK_URL` | No | Slack app settings | Disables the weekly digest post to Slack — the digest still runs and saves to `data/digest_*.md` either way |
 | `EMAIL_*` | No | Your SMTP credentials | Disables email digest notifications |
 
 The minimum to get the app running locally: set `JWT_SECRET`, `APP_PASSWORD`, and optionally `OPENROUTER_API_KEY` if you want to use the onboarding wizard.

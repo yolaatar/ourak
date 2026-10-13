@@ -14,6 +14,7 @@ import re
 from rapidfuzz import fuzz
 
 from app.models import Paper
+from app.sources.openalex import _chunks, _get_all, _short_id
 
 logger = logging.getLogger(__name__)
 
@@ -134,9 +135,60 @@ def dedup_papers(papers: list[Paper]) -> list[Paper]:
             result_titles.append(norm)
             result.append(paper)
 
+    # --- Pass 3: OpenAlex canonical-work merge ---
+    # Catches preprint-vs-published-version pairs whose DOIs differ, which
+    # passes 1-2 miss entirely (DOI-exact needs identical DOIs; fuzzy-title
+    # only runs on papers *without* a DOI). We hit exactly this failure mode
+    # ourselves this session with a bioRxiv preprint + its published version.
+    result = _merge_via_openalex(result)
+
     original = len(papers)
     deduped = len(result)
     if original != deduped:
         logger.info("Dedup: %d → %d papers (%d duplicates removed)", original, deduped, original - deduped)
 
     return result
+
+
+def _merge_via_openalex(papers: list[Paper]) -> list[Paper]:
+    """Merge papers OpenAlex resolves to the same canonical work, even when
+    their own DOIs differ. Fails open: any network/parse error leaves
+    `papers` unchanged rather than breaking the whole dedup pass.
+    """
+    with_doi = [p for p in papers if p.doi]
+    if len(with_doi) < 2:
+        return papers
+
+    try:
+        doi_to_work: dict[str, str] = {}
+        dois = [_norm_doi(p.doi) for p in with_doi]
+        for chunk in _chunks(dois, 50):
+            for w in _get_all(f"doi:{'|'.join(chunk)}", "id,doi"):
+                doi = (w.get("doi") or "").removeprefix("https://doi.org/").lower()
+                if doi:
+                    doi_to_work[doi] = _short_id(w["id"])
+    except Exception as exc:
+        logger.warning("OpenAlex dedup lookup failed, skipping: %s", exc)
+        return papers
+
+    groups: dict[str, list[int]] = {}
+    for i, p in enumerate(papers):
+        work_id = doi_to_work.get(_norm_doi(p.doi)) if p.doi else None
+        if work_id:
+            groups.setdefault(work_id, []).append(i)
+
+    to_drop: set[int] = set()
+    merged = list(papers)
+    for indices in groups.values():
+        if len(indices) < 2:
+            continue
+        primary_idx = indices[0]
+        for dup_idx in indices[1:]:
+            merged[primary_idx] = _merge(merged[primary_idx], merged[dup_idx])
+            to_drop.add(dup_idx)
+            logger.debug(
+                "OpenAlex dedup: merged %s into %s",
+                papers[dup_idx].source_id, papers[primary_idx].source_id,
+            )
+
+    return [p for i, p in enumerate(merged) if i not in to_drop]

@@ -4,35 +4,74 @@
 
 templates:
   - name: axon-myelin-segmentation
-    description: "Automated segmentation of axons and myelin in microscopy"
+    description: "Automated segmentation of axons and myelin in electron microscopy"
     include_any:
+      # Core task + tools first (used as search query terms)
       - axon segmentation
       - myelin segmentation
-      - myelinated axon
-      - axon and myelin
       - AxonDeepSeg
       - DeepACSON
-      - white matter segmentation
-      - nerve fiber segmentation
-      - myelin sheath
-      - histology segmentation
-      - electron microscopy segmentation
-      - SBEM segmentation
-      - instance segmentation white matter
-      - multi-domain segmentation microscopy
-      - axon morphometry
-      - neurite segmentation
       - FIB-SEM
+      - SBEM
+      - connectomics
+      - axon morphometry
+      # Remaining core terms (used for scoring only)
+      - myelinated axon
+      - axon and myelin
+      - white matter segmentation
+      - neurite segmentation
+      - axon tracing
+      - axon reconstruction
+      - neural reconstruction
+      # Known tools and papers
+      - ACSON
+      - gACSON
+      # EM modalities
+      - serial block-face
       - SBEM
       - serial block-face
       - volume electron microscopy
+      - 3D electron microscopy
+      - serial section electron microscopy
+      - array tomography
+      - electron microscopy segmentation
       - EM segmentation
-      - connectomics
+      - SBEM segmentation
+      # Biological structures
+      - myelin sheath
+      - axon morphometry
       - axon diameter
-      - axon tracing
+      - axon caliber
+      - oligodendrocyte segmentation
+      - periaxonal space
+      - Ranvier node
+      - white matter ultrastructure
+      - nerve fiber segmentation
+      # ML task variants
+      - volumetric segmentation neural
+      - dense reconstruction connectomics
+      - instance segmentation white matter
+      - panoptic segmentation EM
+      - proofreading connectome
+      - agglomeration neuron
+      - skeletonization axon
+      # Architectures and methods
+      - Flood Filling Networks
+      - 3D U-Net segmentation
+      - watershed neuron
+      # Foundation models for EM
+      - Segment Anything microscopy
+      - SAM electron microscopy
+      - EM-SAM
+      # General
+      - connectomics
+      - multi-domain segmentation microscopy
     include_all: []
     exclude:
+      - MRI
+      - fMRI
       - retina
+      - retinal
       - plant
       - cardiac
       - speech
@@ -41,18 +80,36 @@ templates:
       - seismic
       - alloy
       - semiconductor
+      - nanomaterial
+      - polymer
+      - white matter lesion
+      - white matter hyperintens
+      - tumor
+      - cancer
+      - clinical trial
     boost_authors:
-      - Cohen-Adad J
-      - Abdollahzadeh A
-      - Collin A
-      - Zaimi A
+      - Cohen-Adad
+      - Abdollahzadeh
+      - Zaimi
+      - Duval
+      - Lichtman
+      - Helmstaedter
+      - Seung
+      - Denk
+      - Knott
     boost_venues:
       - Scientific Reports
       - Communications Biology
       - NeuroImage
       - Nature Methods
+      - Nature Neuroscience
       - MICCAI
       - Medical Image Analysis
+      - ISBI
+      - MIDL
+      - Frontiers in Neuroanatomy
+      - Journal of Neuroscience Methods
+      - eLife
 
   - name: g-ratio-myelin-quantification
     description: "G-ratio computation, myelin measurement, and axon morphometry"

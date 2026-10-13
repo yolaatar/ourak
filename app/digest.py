@@ -14,6 +14,24 @@ def _truncate_authors(authors: list[str], max_n: int = 3) -> str:
     return ", ".join(shown) + suffix
 
 
+_TIER_LABEL = {
+    "confirmed": "Confirmed match",
+    "mentioned": "Mentioned in full text",
+    "keyword_only": "Keyword match",
+}
+
+
+def _evidence_line(paper: Paper) -> str | None:
+    """Why this paper ranked where it did — not just the score, the reason."""
+    tier = getattr(paper, "evidence_tier", None)
+    label = _TIER_LABEL.get(tier)
+    if not label:
+        return None
+    if tier in ("confirmed", "mentioned") and paper.evidence_snippet:
+        return f"**Why it ranked here:** {label} — “…{paper.evidence_snippet}…”"
+    return f"**Why it ranked here:** {label}"
+
+
 def _abstract_snippet(abstract: str | None, chars: int = 200) -> str:
     """Return the first `chars` characters of an abstract."""
     if not abstract:
@@ -67,6 +85,9 @@ def build_digest(
                 meta_parts.append(paper.published_date)
             lines.append(f"**Source:** {' | '.join(meta_parts)}  ")
             lines.append(f"**Score:** {paper.score:.1f}  ")
+            evidence_line = _evidence_line(paper)
+            if evidence_line:
+                lines.append(f"{evidence_line}  ")
             lines.append("")
             if summaries and paper.source_id in summaries:
                 lines.append(f"**Summary:** {summaries[paper.source_id]}")

@@ -19,6 +19,21 @@ EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 _SLEEP_UNAUTH = 0.34
 _SLEEP_AUTH = 0.11
 
+# PubMed indexes the entire clinical/biomedical literature — orders of
+# magnitude broader than arXiv/bioRxiv/Semantic Scholar/Papers With Code,
+# which are already CS-skewed by corpus. A plain OR across biology terms
+# (e.g. "myelin sheath", "axon reconstruction") returns mostly unrelated
+# clinical papers (verified live: pharmacology, oncology, psychiatry,
+# malaria research all matched before this existed). Requiring an AI/ML
+# term too cuts that down to roughly the actual on-topic rate of the other
+# sources — this tool is for biomedical *AI* labs, not biomedical research
+# generally, so this gate applies to every topic, not just this one.
+_AI_METHOD_TERMS = [
+    "deep learning", "machine learning", "neural network", "convolutional",
+    "artificial intelligence", "computer vision", "automated segmentation",
+    "U-Net", "CNN", "transformer model",
+]
+
 
 def _build_query(topic: Topic) -> str:
     """Construct a PubMed boolean query string from a Topic."""
@@ -29,6 +44,8 @@ def _build_query(topic: Topic) -> str:
     if topic.include_all:
         all_clause = " AND ".join(f'"{t}"[Title/Abstract]' for t in topic.include_all)
         parts.append(f"({all_clause})")
+    ai_clause = " OR ".join(f'"{t}"[Title/Abstract]' for t in _AI_METHOD_TERMS)
+    parts.append(f"({ai_clause})")
     return " AND ".join(parts) if parts else ""
 
 

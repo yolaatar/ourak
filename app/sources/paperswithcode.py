@@ -67,17 +67,8 @@ def _parse_results(data: dict, topic_name: str, cutoff_date: str | None) -> list
 
 
 def fetch_paperswithcode(topic: Topic, days_back: int, max_results: int) -> list[Paper]:
-    """Fetch papers from Papers With Code for a given topic.
-
-    Returns an empty list on any network or parse error.
-    Probes the API first and skips if it returns HTML instead of JSON.
-    """
+    """Fetch papers from Papers With Code for a given topic."""
     try:
-        probe = requests.head(_PWC_API, timeout=5)
-        if "json" not in probe.headers.get("content-type", ""):
-            logger.debug("PWC API returned HTML — skipping")
-            return []
-
         query = _build_query(topic)
         if not query:
             logger.warning("No query terms for topic %s — skipping PWC", topic.name)
@@ -90,8 +81,12 @@ def fetch_paperswithcode(topic: Topic, days_back: int, max_results: int) -> list
             "page": 1,
         }
 
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "paperwatch/1.0 (research paper discovery tool)",
+        }
         logger.info("PWC search: topic=%s query=%r", topic.name, query)
-        resp = requests.get(_PWC_API, params=params, timeout=30)
+        resp = requests.get(_PWC_API, params=params, headers=headers, timeout=30)
         resp.raise_for_status()
         time.sleep(_SLEEP)
 

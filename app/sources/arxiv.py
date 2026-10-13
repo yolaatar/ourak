@@ -1,6 +1,7 @@
 """arXiv source fetcher using the arXiv Atom API."""
 
 import logging
+import threading
 import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
@@ -17,12 +18,21 @@ _ARXIV_NS = "http://arxiv.org/schemas/atom"
 _SLEEP = 3.0  # arXiv asks for ≥3s between requests
 
 
+_MAX_QUERY_TERMS = 8  # arXiv URL length limit — scoring uses all terms
+_rate_lock = threading.Lock()  # serialise all arXiv requests (rate limit: ≥3s between)
+
+
 def _build_query(topic: Topic) -> str:
-    """Construct an arXiv search query from a Topic."""
+    """Construct an arXiv search query from a Topic.
+
+    Uses only the first _MAX_QUERY_TERMS include_any terms to keep the URL
+    short enough for arXiv's API. The full keyword list is used for scoring.
+    """
     parts: list[str] = []
     if topic.include_any:
+        search_terms = topic.include_any[:_MAX_QUERY_TERMS]
         any_clause = " OR ".join(
-            f'(ti:"{t}" OR abs:"{t}")' for t in topic.include_any
+            f'(ti:"{t}" OR abs:"{t}")' for t in search_terms
         )
         parts.append(f"({any_clause})")
     if topic.include_all:
@@ -126,10 +136,11 @@ def fetch_arxiv(topic: Topic, days_back: int, max_results: int) -> list[Paper]:
             "sortOrder": "descending",
         }
 
-        logger.info("arXiv query: topic=%s query=%r", topic.name, query)
-        resp = requests.get(_ARXIV_API, params=params, timeout=30)
-        resp.raise_for_status()
-        time.sleep(_SLEEP)
+        with _rate_lock:
+            logger.info("arXiv query: topic=%s query=%r", topic.name, query)
+            resp = requests.get(_ARXIV_API, params=params, timeout=30)
+            resp.raise_for_status()
+            time.sleep(_SLEEP)
 
         return _parse_feed(resp.text, topic.name, days_back)
 

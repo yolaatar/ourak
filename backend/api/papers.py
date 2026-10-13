@@ -31,6 +31,8 @@ def _paper_to_dict(paper: PaperDB, feedback_signal: str | None = None) -> dict:
         "doi": paper.doi,
         "url": paper.url,
         "score": paper.score,
+        "evidence_tier": paper.evidence_tier,
+        "evidence_snippet": paper.evidence_snippet,
         "created_at": paper.created_at.isoformat() if paper.created_at else None,
         "feedback_signal": feedback_signal,
     }
@@ -40,16 +42,27 @@ def _paper_to_dict(paper: PaperDB, feedback_signal: str | None = None) -> dict:
 def list_papers(
     user_id: int | None = None,
     topic_id: int | None = None,
+    profile_id: int | None = None,
     sort_by: Literal["score", "date"] = "score",
     source: str | None = None,
     limit: int = 20,
     offset: int = 0,
     session: Session = Depends(get_session),
 ) -> list[dict]:
-    """Return papers, optionally filtered by topic/source, sorted by score or date."""
-    if topic_id:
+    """Return papers, optionally filtered by profile/topic/source."""
+    if profile_id:
         query = (
             select(PaperDB)
+            .distinct()
+            .join(PaperTopicLink, PaperDB.id == PaperTopicLink.paper_id)
+            .where(PaperTopicLink.profile_id == profile_id)
+        )
+        if topic_id:
+            query = query.where(PaperTopicLink.topic_id == topic_id)
+    elif topic_id:
+        query = (
+            select(PaperDB)
+            .distinct()
             .join(PaperTopicLink, PaperDB.id == PaperTopicLink.paper_id)
             .where(PaperTopicLink.topic_id == topic_id)
         )
@@ -58,6 +71,10 @@ def list_papers(
 
     if source:
         query = query.where(PaperDB.source == source)
+
+    # Hide low-relevance papers (score < 15 on 0-100 scale)
+    if sort_by == "score":
+        query = query.where(PaperDB.score >= 15)
 
     if sort_by == "date":
         query = query.order_by(PaperDB.published_date.desc())

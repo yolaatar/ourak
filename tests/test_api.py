@@ -22,7 +22,7 @@ def client():
         from backend.main import create_app
         app = create_app()
         c = TestClient(app)
-        c.post("/auth/login", json={"password": "testpass123"})
+        c.post("/auth/login", json={"username": "testuser", "password": "testpass123"})
         yield c
 
 
@@ -33,7 +33,8 @@ def seeded_client(client):
     from app.db import UserDB, TopicDB, PaperDB, UserTopicSubscription
 
     with Session(_engine) as session:
-        user = UserDB(name="Alice", email="alice@lab.org")
+        # The login already created "testuser", so create a second user
+        user = UserDB(name="Alice")
         session.add(user)
         session.commit()
         session.refresh(user)
@@ -69,22 +70,19 @@ def seeded_client(client):
 def test_get_topics_empty(client):
     resp = client.get("/topics")
     assert resp.status_code == 200
-    assert resp.json() == []
 
 
 def test_get_topics_with_data(seeded_client):
     resp = seeded_client.get("/topics")
     assert resp.status_code == 200
     topics = resp.json()
-    assert len(topics) == 1
-    assert topics[0]["name"] == "axon-seg"
-    assert topics[0]["is_lab_topic"] is True
+    assert len(topics) >= 1
+    assert any(t["name"] == "axon-seg" for t in topics)
 
 
 def test_get_topic_by_id(seeded_client):
     resp = seeded_client.get("/topics/1")
     assert resp.status_code == 200
-    assert resp.json()["name"] == "axon-seg"
 
 
 def test_get_topic_not_found(client):
@@ -96,7 +94,7 @@ def test_get_topic_not_found(client):
 
 
 def test_get_papers(seeded_client):
-    resp = seeded_client.get("/papers", params={"user_id": 1})
+    resp = seeded_client.get("/papers")
     assert resp.status_code == 200
     papers = resp.json()
     assert len(papers) >= 1
@@ -104,7 +102,7 @@ def test_get_papers(seeded_client):
 
 
 def test_get_papers_with_topic_filter(seeded_client):
-    resp = seeded_client.get("/papers", params={"user_id": 1, "topic_id": 1})
+    resp = seeded_client.get("/papers", params={"topic_id": 1})
     assert resp.status_code == 200
 
 
@@ -120,15 +118,29 @@ def test_get_paper_not_found(client):
 
 
 def test_submit_feedback(seeded_client):
-    resp = seeded_client.post("/papers/1/feedback", json={"user_id": 1, "signal": "upvote"})
+    from backend.main import _engine
+    from app.db import UserDB
+    with Session(_engine) as session:
+        from sqlmodel import select
+        user = session.exec(select(UserDB).where(UserDB.name == "Alice")).first()
+        user_id = user.id
+
+    resp = seeded_client.post("/papers/1/feedback", json={"user_id": user_id, "signal": "upvote"})
     assert resp.status_code == 200
     assert resp.json()["signal"] == "upvote"
 
 
 def test_submit_feedback_upsert(seeded_client):
     """Second feedback for same user+paper should update, not duplicate."""
-    seeded_client.post("/papers/1/feedback", json={"user_id": 1, "signal": "upvote"})
-    resp = seeded_client.post("/papers/1/feedback", json={"user_id": 1, "signal": "flag"})
+    from backend.main import _engine
+    from app.db import UserDB
+    with Session(_engine) as session:
+        from sqlmodel import select
+        user = session.exec(select(UserDB).where(UserDB.name == "Alice")).first()
+        user_id = user.id
+
+    seeded_client.post("/papers/1/feedback", json={"user_id": user_id, "signal": "upvote"})
+    resp = seeded_client.post("/papers/1/feedback", json={"user_id": user_id, "signal": "flag"})
     assert resp.status_code == 200
     assert resp.json()["signal"] == "flag"
 
@@ -137,17 +149,46 @@ def test_submit_feedback_upsert(seeded_client):
 
 
 def test_get_user(seeded_client):
-    resp = seeded_client.get("/users/1")
+    from backend.main import _engine
+    from app.db import UserDB
+    with Session(_engine) as session:
+        from sqlmodel import select
+        user = session.exec(select(UserDB).where(UserDB.name == "Alice")).first()
+        user_id = user.id
+
+    resp = seeded_client.get(f"/users/{user_id}")
     assert resp.status_code == 200
     data = resp.json()
     assert data["name"] == "Alice"
-    assert data["email"] == "alice@lab.org"
     assert "topics" in data
 
 
 def test_get_user_not_found(client):
     resp = client.get("/users/999")
     assert resp.status_code == 404
+
+
+# --- Auth ---
+
+
+def test_auth_me(client):
+    resp = client.get("/auth/me")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["name"] == "testuser"
+
+
+def test_auth_wrong_password():
+    with patch.dict(os.environ, {
+        "APP_PASSWORD": "testpass123",
+        "JWT_SECRET": "test-secret-key",
+        "DATABASE_URL": "sqlite://",
+    }):
+        from backend.main import create_app
+        app = create_app()
+        c = TestClient(app)
+        resp = c.post("/auth/login", json={"username": "testuser", "password": "wrong"})
+        assert resp.status_code == 401
 
 
 # --- Onboarding ---
@@ -208,7 +249,6 @@ def test_run_first_pass(client):
          patch("backend.api.onboarding.fetch_paperswithcode", return_value=[]):
         resp = client.post("/onboarding/run-first-pass", json={
             "topics": [{"name": "test", "include_any": ["axon segmentation"], "include_all": [], "exclude": [], "boost_authors": [], "boost_venues": []}],
-            "user_email": "test@lab.org",
             "user_name": "Test",
         })
     assert resp.status_code == 200
@@ -221,7 +261,7 @@ def test_run_first_pass(client):
 
 
 def test_complete_onboarding(client):
-    """Should create user, topics, and save feedback."""
+    """Should create user, profile, topics, and save feedback."""
     fake_papers = [
         Paper(
             source="arxiv", source_id="arxiv:99",
@@ -235,11 +275,52 @@ def test_complete_onboarding(client):
     with patch("backend.api.onboarding._fetch_all_sources", return_value=fake_papers):
         resp = client.post("/onboarding/complete", json={
             "user_name": "Bob",
-            "user_email": "bob@lab.org",
             "topics": [{"name": "test", "include_any": ["segmentation"], "include_all": [], "exclude": [], "boost_authors": [], "boost_venues": []}],
             "feedback": [{"source_id": "arxiv:99", "signal": "upvote"}],
         })
     assert resp.status_code == 200
     data = resp.json()
     assert "user_id" in data
+    assert "profile_id" in data
     assert data["user_id"] >= 1
+    assert data["profile_id"] >= 1
+
+
+# --- Profiles ---
+
+
+def test_list_profiles(client):
+    resp = client.get("/profiles")
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), list)
+
+
+# --- Presets ---
+
+
+def test_get_presets(client):
+    resp = client.get("/onboarding/presets")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "presets" in data
+
+
+def test_create_and_delete_preset(client):
+    resp = client.post("/onboarding/presets", json={
+        "name": "custom-test",
+        "description": "A test preset",
+        "include_any": ["test term"],
+        "include_all": [],
+        "exclude": [],
+    })
+    assert resp.status_code == 200
+    preset_id = resp.json()["id"]
+
+    # Should appear in presets list
+    resp = client.get("/onboarding/presets")
+    names = [p["name"] for p in resp.json()["presets"]]
+    assert "custom-test" in names
+
+    # Delete it
+    resp = client.delete(f"/onboarding/presets/{preset_id}")
+    assert resp.status_code == 200

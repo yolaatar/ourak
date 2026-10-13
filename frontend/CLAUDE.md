@@ -6,23 +6,23 @@ This is a research paper discovery tool for a biomedical AI lab.
 
 ## Design system
 
-### Colors (dark theme)
---color-bg: #0f1117
---color-surface: #1a1d27
---color-border: #2a2d3a
---color-text-primary: #e4e5e9
---color-text-secondary: #9ca0ad
---color-text-muted: #6b7084
---color-accent: #3b82f6
---color-accent-hover: #60a5fa
---color-success: #22c55e
---color-warning: #f59e0b
---color-danger: #ef4444
+### Colors
+--color-bg: #f8f9fa
+--color-surface: #ffffff
+--color-border: #e5e7eb
+--color-text-primary: #111827
+--color-text-secondary: #6b7280
+--color-text-muted: #9ca3af
+--color-accent: #2563eb
+--color-accent-hover: #1d4ed8
+--color-success: #16a34a
+--color-warning: #d97706
+--color-danger: #dc2626
 
-### Source badge colors (dark theme — rgba backgrounds)
-pubmed: #4ade80 on rgba(34, 197, 94, 0.15)
-arxiv: #fb923c on rgba(234, 88, 12, 0.15)
-biorxiv: #a78bfa on rgba(124, 58, 237, 0.15)
+### Source badge colors
+pubmed: #16a34a (green)
+arxiv: #ea580c (orange)
+biorxiv: #7c3aed (purple)
 paperswithcode: #2563eb (blue)
 semanticscholar: #6b7280 (gray)
 
@@ -131,3 +131,4 @@ DON'T:
 - No placeholder lorem ipsum — use realistic paper titles and author names
 - Don't install any UI component library without asking first
 - Don't use Tailwind
+- 

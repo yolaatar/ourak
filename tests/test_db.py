@@ -44,7 +44,7 @@ def test_init_db_creates_tables(db_engine):
 
 def test_create_user(db_session):
     from app.db import UserDB
-    user = UserDB(name="Alice", email="alice@lab.org")
+    user = UserDB(name="Alice")
     db_session.add(user)
     db_session.commit()
     db_session.refresh(user)
@@ -53,11 +53,11 @@ def test_create_user(db_session):
     assert user.created_at is not None
 
 
-def test_user_email_unique(db_session):
+def test_user_name_unique(db_session):
     from app.db import UserDB
-    db_session.add(UserDB(name="Alice", email="alice@lab.org"))
+    db_session.add(UserDB(name="Alice"))
     db_session.commit()
-    db_session.add(UserDB(name="Bob", email="alice@lab.org"))
+    db_session.add(UserDB(name="Alice"))
     with pytest.raises(Exception):  # IntegrityError
         db_session.commit()
 
@@ -110,7 +110,7 @@ def test_paper_source_id_unique(db_session):
 
 def test_user_topic_subscription(db_session):
     from app.db import UserDB, TopicDB, UserTopicSubscription
-    user = UserDB(name="Alice", email="alice@lab.org")
+    user = UserDB(name="Alice")
     topic = TopicDB(name="test-topic", config_yaml="")
     db_session.add(user)
     db_session.add(topic)
@@ -134,7 +134,7 @@ def test_user_topic_subscription(db_session):
 
 def test_create_feedback(db_session):
     from app.db import UserDB, PaperDB, Feedback
-    user = UserDB(name="Alice", email="alice@lab.org")
+    user = UserDB(name="Alice")
     paper = PaperDB(source="arxiv", source_id="arxiv:1", title="Paper")
     db_session.add(user)
     db_session.add(paper)
