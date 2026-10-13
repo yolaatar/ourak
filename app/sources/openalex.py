@@ -229,10 +229,26 @@ def fetch_lab_works(cfg: LabConfig, alumni: frozenset = frozenset()) -> dict[str
     show up anywhere.
 
     Not type-filtered: a paper citing the lab's software or dataset still counts.
+
+    _lab_filters' ORCID/author-ID/affiliation values are passed straight to
+    OpenAlex's own filter — a server-side match there does not guarantee
+    _match_lab_authors will find the same person when it re-checks each
+    authorship individually (ORCID in particular: OpenAlex's own
+    orcid-to-author-profile index can misattribute works to the wrong ORCID,
+    observed live — one lab PI's ORCID filter alone matched 1,380 works,
+    including massive generic consensus papers like "Metrics reloaded" and
+    "The Medical Segmentation Decathlon" where that ORCID appears nowhere in
+    the actual author list). Requiring a real _match_lab_authors match before
+    inclusion catches this: of 1,647 OpenAlex-filter matches, 919 (56%) had no
+    verified lab author at all and would otherwise flood citation tracking
+    with noise unrelated to the lab's actual output.
     """
     works: dict[str, dict] = {}
     for f in _lab_filters(cfg):
         for w in _get_all(f, _LAB_WORK_FIELDS):
+            lab_coauthors = _match_lab_authors(w, cfg, alumni=alumni)
+            if not lab_coauthors:
+                continue
             authors = [
                 (a.get("author") or {}).get("display_name", "") for a in w.get("authorships") or []
             ]
@@ -241,7 +257,7 @@ def fetch_lab_works(cfg: LabConfig, alumni: frozenset = frozenset()) -> dict[str
                 "authors": [a for a in authors if a],
                 "published_date": w.get("publication_date"),
                 "is_first_author": _is_first_author_from_lab(w, cfg, alumni=alumni),
-                "lab_coauthors": _match_lab_authors(w, cfg, alumni=alumni),
+                "lab_coauthors": lab_coauthors,
             }
     return works
 
