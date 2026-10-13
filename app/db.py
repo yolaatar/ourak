@@ -121,6 +121,19 @@ class Feedback(SQLModel, table=True):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class DigestStateDB(SQLModel, table=True):
+    """Single-row marker: when the citations page was last built.
+
+    Lets app/citations_page.py tell "new since last digest" (created_at
+    after this) apart from "new this month" (just a recent published_date) —
+    see get_last_digest_build/set_last_digest_build below.
+    """
+    __tablename__ = "digest_state"
+
+    id: int | None = Field(default=None, primary_key=True)
+    last_built_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 # ──────────────────────────────────────────────
 # Engine / session management
 # ──────────────────────────────────────────────
@@ -220,6 +233,23 @@ def is_seen(session: Session, source_id: str) -> bool:
 def get_unseen_papers(session: Session, papers: list[Paper]) -> list[Paper]:
     """Return only papers whose source_id is not already in the DB."""
     return [p for p in papers if not is_seen(session, p.source_id)]
+
+
+def get_last_digest_build(session: Session) -> datetime | None:
+    """When the citations page was last built, or None if it never has been."""
+    row = session.get(DigestStateDB, 1)
+    return row.last_built_at if row else None
+
+
+def set_last_digest_build(session: Session, when: datetime) -> None:
+    """Record this as the new cutoff for 'new since last digest'."""
+    row = session.get(DigestStateDB, 1)
+    if row:
+        row.last_built_at = when
+    else:
+        row = DigestStateDB(id=1, last_built_at=when)
+    session.add(row)
+    session.commit()
 
 
 def _upsert_paper(session: Session, paper: Paper) -> PaperDB:

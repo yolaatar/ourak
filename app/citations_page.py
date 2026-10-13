@@ -19,11 +19,25 @@ from datetime import datetime, timezone
 from sqlmodel import Session, select
 
 from app.config import load_env
-from app.db import PaperDB, PaperTopicLink, TopicDB, init_db
+from app.db import (
+    PaperDB,
+    PaperTopicLink,
+    TopicDB,
+    get_last_digest_build,
+    init_db,
+    set_last_digest_build,
+)
 from app.lab_watch import CITING_TOPIC, load_lab_config
 
 _UNSPECIFIED = "Other lab work"
 _UNKNOWN_MONTH = "Undated"
+
+
+def _as_utc(dt: datetime) -> datetime:
+    """SQLite round-trips datetimes as naive — treat naive as UTC so
+    comparisons against datetime.now(timezone.utc) don't raise.
+    """
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 def _citing_papers(session: Session, topic_name: str) -> list[PaperDB]:
@@ -92,22 +106,23 @@ def _count_label(n: int, noun: str = "citation") -> str:
     return f"{n} {noun}{'s' if n != 1 else ''}"
 
 
-def _paper_row(paper: PaperDB) -> str:
+def _paper_row(paper: PaperDB, *, is_new: bool = False) -> str:
     title = html.escape(paper.title or "Untitled")
     link = f'<a href="{html.escape(paper.url)}">{title}</a>' if paper.url else title
+    new_badge = ' <span class="newBadge">new</span>' if is_new else ""
 
     authors = json.loads(paper.authors or "[]")
     meta = " · ".join(p for p in [_authors_et_al(authors), paper.journal, paper.published_date] if p)
 
     return (
         '<li class="row">'
-        f'<div class="rowTitle">{link}</div>'
+        f'<div class="rowTitle">{link}{new_badge}</div>'
         f'<div class="rowMeta">{html.escape(meta)}</div>'
         "</li>"
     )
 
 
-def _group_html(cited_work: dict, papers: list[PaperDB]) -> str:
+def _group_html(cited_work: dict, papers: list[PaperDB], *, new_ids: frozenset = frozenset()) -> str:
     """One bordered card per cited lab paper — the box makes 'what's under what' unambiguous."""
     title = cited_work.get("title") or _UNSPECIFIED
     meta = " · ".join(
@@ -138,12 +153,12 @@ def _group_html(cited_work: dict, papers: list[PaperDB]) -> str:
         f"{meta_html}"
         f"{coauthor_html}"
         "</div>"
-        f'<ul class="groupList">{"".join(_paper_row(p) for p in papers)}</ul>'
+        f'<ul class="groupList">{"".join(_paper_row(p, is_new=p.id in new_ids) for p in papers)}</ul>'
         "</div>"
     )
 
 
-def _month_html(label: str, papers: list[PaperDB], *, open_by_default: bool) -> str:
+def _month_html(label: str, papers: list[PaperDB], *, open_by_default: bool, new_ids: frozenset = frozenset()) -> str:
     groups = _group_by_cited_work(papers)
     # Groups with several citations, or lab-led ones regardless of count, are the
     # interesting ones — show them right away. A single-citation, non-lab-led
@@ -152,13 +167,13 @@ def _month_html(label: str, papers: list[PaperDB], *, open_by_default: bool) -> 
     highlighted = [(t, g) for t, g in groups if t.get("is_first_author") or len(g) > 1]
     singles = [(t, g) for t, g in groups if not t.get("is_first_author") and len(g) == 1]
 
-    highlighted_html = "\n".join(_group_html(title, group) for title, group in highlighted)
+    highlighted_html = "\n".join(_group_html(title, group, new_ids=new_ids) for title, group in highlighted)
     singles_html = ""
     if singles:
         singles_html = (
             '<details class="singleWrap">'
             f'<summary><span class="chevron">&#9656;</span> {len(singles)} more, cited once each &mdash; show</summary>'
-            f'<div class="singleBody">{"".join(_group_html(t, g) for t, g in singles)}</div>'
+            f'<div class="singleBody">{"".join(_group_html(t, g, new_ids=new_ids) for t, g in singles)}</div>'
             "</details>"
         )
 
@@ -171,23 +186,58 @@ def _month_html(label: str, papers: list[PaperDB], *, open_by_default: bool) -> 
     )
 
 
+def _new_section_html(new_papers: list[PaperDB], new_ids: frozenset) -> str:
+    """'New since last digest' — answers 'what's new' immediately, without
+    having to scan the whole page and cross-reference dates by hand. Reuses
+    the same cited-work grouping/styling as the main list for consistency.
+    """
+    groups = _group_by_cited_work(new_papers)
+    groups_html = "\n".join(_group_html(t, g, new_ids=new_ids) for t, g in groups)
+    return (
+        '<section class="newSection">'
+        '<div class="newSectionHeading">New since last digest '
+        f'<span class="monthCount">{_count_label(len(new_papers))}</span></div>'
+        f"{groups_html}"
+        "</section>"
+    )
+
+
 def build_citations_page(session: Session, lab_name: str, topic_name: str = CITING_TOPIC) -> str:
-    """Render the full static HTML page: months (newest first), each grouped by cited work."""
+    """Render the full static HTML page: months (newest first), each grouped by cited work.
+
+    A paper's "new" badge is based on when *we* first saw it (created_at vs.
+    the last time this page was built), not its publication date — a paper
+    can be published a month ago but only just get indexed by OpenAlex this
+    week, which publication-date alone can't tell you.
+    """
     papers = _citing_papers(session, topic_name)
     lab = html.escape(lab_name)
 
+    previous_build = get_last_digest_build(session)
+    new_papers = (
+        [p for p in papers if _as_utc(p.created_at) > _as_utc(previous_build)]
+        if previous_build
+        else []  # first-ever build: nothing to compare against, so nothing is "new"
+    )
+    new_ids = frozenset(p.id for p in new_papers)
+
     if papers:
+        new_section = _new_section_html(new_papers, new_ids) if new_papers else ""
         months = _group_by_month(papers)
-        body = "\n".join(
-            _month_html(label, month_papers, open_by_default=(i == 0))
+        body = new_section + "\n".join(
+            _month_html(label, month_papers, open_by_default=(i == 0), new_ids=new_ids)
             for i, (label, month_papers) in enumerate(months)
         )
         subtitle = f"{_count_label(len(papers))} of {lab}'s work, grouped by month then by which paper is cited."
+        if new_papers:
+            subtitle += f" {_count_label(len(new_papers))} new since last digest."
     else:
         body = '<p class="empty">No citations tracked yet — check back after the next weekly run.</p>'
         subtitle = "Nothing tracked yet."
 
-    updated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now(timezone.utc)
+    set_last_digest_build(session, now)
+    updated = now.strftime("%Y-%m-%d %H:%M UTC")
 
     return f"""<!doctype html>
 <html lang="en">
@@ -270,6 +320,20 @@ _STYLE = """
   .content { max-width: 780px; margin: 0 auto; padding: 32px 24px 64px; }
   h1 { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
   .subtitle { font-size: 13px; color: var(--color-text-secondary); margin-bottom: 32px; }
+
+  .newSection {
+    margin-bottom: 40px; padding-bottom: 24px; border-bottom: 1px dashed var(--color-border);
+  }
+  .newSectionHeading {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 15px; font-weight: 600; color: var(--color-text-primary);
+    padding-bottom: 8px; margin-bottom: 16px;
+  }
+  .newBadge {
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+    color: #fb7185; background: rgba(251, 113, 133, 0.15);
+    padding: 2px 6px; border-radius: var(--radius-sm); vertical-align: middle;
+  }
 
   .month { margin-top: 40px; }
   .month:first-of-type { margin-top: 8px; }
