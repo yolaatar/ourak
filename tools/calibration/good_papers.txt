@@ -1,0 +1,5 @@
+# Paste titles + abstracts of papers YOU consider relevant, one per block.
+# Separate blocks with a blank line. Delete these comments before running.
+
+Prefer-DAS: Learning from Local Preferences and Sparse Prompts for Domain Adaptive Segmentation of Electron Microscopy
+Domain adaptive segmentation (DAS) is a promising paradigm for delineating intracellular structures from various large-scale electron microscopy (EM) without incurring extensive annotated data in each domain. In this work, we propose Prefer-DAS, a promptable multitask model that combines self-training with prompt-guided contrastive learning and local preference optimization to achieve annotation-efficient domain-adaptive EM segmentation of axons, mitochondria, and synapses.

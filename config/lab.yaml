@@ -1,0 +1,76 @@
+# Lab watcher config (python -m app.lab_watch)
+#
+# A paper counts as a lab paper if it matches ANY of:
+#   - affiliations: keyword found in an author's affiliation ("NeuroPoly Lab, ...")
+#   - authors: ORCID (preferred) or OpenAlex author IDs
+#
+# Affiliations catch most lab papers without listing anyone. Listing authors
+# catches papers where the affiliation doesn't say "NeuroPoly".
+# ORCID matters because OpenAlex often splits one person into several
+# profiles, and ORCID covers all of them. Look people up with:
+#   python -m app.lab_watch --find "Full Name" "Other Name"
+#
+# Before adding someone, check their profile isn't merged with a homonym:
+# every work on it gets posted as a lab paper, and its citations get tracked.
+
+lab_name: NeuroPoly
+
+# Only papers published in this window are considered. Seen papers are tracked
+# in the DB, so a window wider than the run interval just catches late indexing.
+lookback_days: 30
+
+affiliations:
+  - NeuroPoly
+
+authors:
+  # PIs
+  - name: Julien Cohen-Adad
+    orcid: 0000-0003-3662-9532
+  - name: Nikola Stikov
+    orcid: 0000-0002-8480-5230
+  - name: Benjamin De Leener
+    orcid: 0000-0002-1378-2756
+  - name: Eva Alonso-Ortiz
+    orcid: 0000-0001-6590-7234
+
+  # Research associates
+  - name: Mathieu Guay-Paquet
+    openalex_ids: [A5114621843]  # his other profile (A5078182573) is his combinatorics work
+  - name: Nibardo Lopez Rios
+    orcid: 0000-0002-4791-8260
+  - name: Emma Lichtenstein
+    openalex_ids: [A5005722721]
+  - name: Alex Valcourt Caron
+    orcid: 0000-0002-1206-6395
+
+  # Postdocs
+  - name: Jan Valošek
+    orcid: 0000-0002-7398-4990
+  - name: Agâh Karakuzu
+    orcid: 0000-0001-7283-271X
+
+  # PhD students
+  - name: Alexandre D'Astous
+    orcid: 0000-0003-0381-7334
+  - name: Andjela Dimitrijevic
+    orcid: 0000-0002-8799-6300
+  - name: Daniel Ridani
+    orcid: 0000-0001-7145-2627
+  - name: Nathan Molinier
+    orcid: 0000-0002-8312-8952
+  - name: Nilser Laines Medina
+    orcid: 0000-0003-0677-8991
+  - name: Samuelle St-Onge
+    orcid: 0000-0001-7572-8504
+  - name: Pierre-Louis Benveniste
+    orcid: 0009-0003-3122-1957
+  - name: Sandrine Bédard
+    orcid: 0000-0001-9859-1133
+
+  # Covered by the NeuroPoly affiliation only: their OpenAlex profiles are
+  # merged with homonyms (fisheries biologist, marketing researcher, Czech
+  # surgeon, 1960s zoologist...), so listing them would post unrelated papers.
+  #   Mathieu Boudreau (0000-0002-7726-4456), Joshua Newton (0000-0002-7892-361X),
+  #   Jan Paška (A5001158863), Armand Collin (0009-0005-3258-122X)
+  #
+  # Not found in OpenAlex yet: Annaelle Sarrazin, Sebastian Rios
