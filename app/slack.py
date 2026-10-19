@@ -5,7 +5,7 @@ import logging
 import requests
 
 from app.digest import _truncate_authors
-from app.models import LabPaper, Paper
+from app.models import LabPaper
 
 logger = logging.getLogger(__name__)
 
@@ -62,63 +62,18 @@ def build_messages(lab_name: str, authored: list[LabPaper], citing: list[LabPape
     ]
 
 
-_TIER_LABEL = {
-    "confirmed": "Confirmed match",
-    "mentioned": "Mentioned in full text",
-    "keyword_only": "Keyword match",
-}
+def build_digest_pointer_message(count: int, url: str) -> list[dict]:
+    """One lightweight payload pointing to the discovery digest page.
 
-
-def _digest_paper_block(paper: Paper) -> dict:
-    """One section block per discovery paper: title, meta, score, and the
-    evidence tier so the ranking isn't just an opaque number — same
-    transparency as the keyword-vs-full-text evidence the spine-generic
-    analysis gave.
+    The bot never posts the paper list itself here — see CLAUDE.md: Slack
+    only ever gets this link (weekly) and the daily new-lab-paper reminder
+    (app.lab_watch), nothing else.
     """
-    title = _escape(paper.title or "Untitled")
-    title_line = f"*<{paper.url}|{title}>*" if paper.url else f"*{title}*"
-
-    meta = [_escape(_truncate_authors(paper.authors))]
-    if paper.journal:
-        meta.append(f"_{_escape(paper.journal)}_")
-    if paper.published_date:
-        meta.append(paper.published_date)
-    lines = [title_line, " · ".join(meta), f"Score: {paper.score:.0f}"]
-
-    tier_label = _TIER_LABEL.get(paper.evidence_tier, "Keyword match")
-    if paper.evidence_tier in ("confirmed", "mentioned") and paper.evidence_snippet:
-        snippet = _escape(paper.evidence_snippet)
-        if len(snippet) > 220:
-            snippet = snippet[:220] + "…"
-        lines.append(f"{tier_label}: _“…{snippet}…”_")
+    if count:
+        text = f"*Paper Watch:* {count} new paper{'s' if count != 1 else ''} this week — <{url}|see the digest>"
     else:
-        lines.append(tier_label)
-
-    text = "\n".join(lines)
-    if len(text) > _MAX_TEXT:
-        text = text[: _MAX_TEXT - 1] + "…"
-    return {"type": "section", "text": {"type": "mrkdwn", "text": text}}
-
-
-def build_digest_messages(topic_results: list[tuple[str, list[Paper]]]) -> list[dict]:
-    """Build Slack payloads for the discovery digest (distinct from
-    build_messages, which is lab-watch's authored/citing format).
-    """
-    total = sum(len(papers) for _, papers in topic_results)
-    summary = f"Paper-Watch digest: {total} paper{'s' if total != 1 else ''}"
-    blocks: list[dict] = [{"type": "header", "text": {"type": "plain_text", "text": summary[:150]}}]
-
-    for topic_name, papers in topic_results:
-        if not papers:
-            continue
-        blocks.append({"type": "divider"})
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f"*{topic_name}*"}})
-        blocks.extend(_digest_paper_block(p) for p in papers)
-
-    return [
-        {"text": summary, "blocks": blocks[i : i + _MAX_BLOCKS]}
-        for i in range(0, len(blocks), _MAX_BLOCKS)
-    ]
+        text = f"*Paper Watch:* no new papers this week — <{url}|see the digest>"
+    return [{"text": text, "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]}]
 
 
 def build_citation_pointer_message(lab_name: str, count: int, url: str) -> list[dict]:

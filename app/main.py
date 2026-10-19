@@ -9,10 +9,11 @@ from app.config import load_config, load_env
 from app.db import get_unseen_papers, init_db, mark_seen
 from app.dedup import dedup_papers
 from app.digest import build_digest
+from app.digest_page import build_digest_page
 from app.fulltext import apply_evidence_pass
 from app.llm import summarize_papers
 from app.scoring import score_papers
-from app.slack import build_digest_messages, post_to_slack
+from app.slack import build_digest_pointer_message, post_to_slack
 from app.sources import ALL_FETCHERS
 from app.sources.openalex_discovery import fetch_cites_known_work, resolve_seed_concepts
 
@@ -77,14 +78,23 @@ def run() -> None:
         out_path.write_text(digest)
         logger.info("Digest saved to %s", out_path)
 
+        # The page is the real output; Slack only ever gets a link to it, never
+        # the paper list itself — see CLAUDE.md.
+        site_dir = Path("site")
+        site_dir.mkdir(exist_ok=True)
+        (site_dir / "digest.html").write_text(build_digest_page(topic_results, summaries))
+
         webhook = os.getenv("SLACK_WEBHOOK_URL")
-        if webhook:
+        digest_url = os.getenv("DIGEST_URL")
+        if webhook and digest_url:
             try:
-                post_to_slack(webhook, build_digest_messages(topic_results))
+                post_to_slack(webhook, build_digest_pointer_message(len(all_papers), digest_url))
             except Exception as exc:
                 logger.warning("Slack delivery failed: %s", exc)
-        else:
+        elif not webhook:
             logger.info("SLACK_WEBHOOK_URL not set, skipping Slack delivery")
+        else:
+            logger.info("DIGEST_URL not set, skipping Slack delivery")
 
         mark_seen(session, all_papers)
 

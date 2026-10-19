@@ -21,6 +21,7 @@ data/runs/
 data/*.db
 data/*.json
 data/digest_*.md
+site/
 
 # OS
 .DS_Store
