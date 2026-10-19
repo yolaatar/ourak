@@ -24,7 +24,10 @@ def run() -> None:
     """Fetch, score, and print a markdown digest of new research papers."""
     load_env()
     cfg = load_config("config")
-    engine = init_db()
+    db_url = os.getenv("DATABASE_URL") or "sqlite:///data/paperwatch.db"
+    if db_url.startswith("sqlite:///data/"):
+        Path("data").mkdir(exist_ok=True)
+    engine = init_db(db_url)
 
     from sqlmodel import Session
 
