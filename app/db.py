@@ -1,0 +1,336 @@
+"""SQLite database layer using SQLModel."""
+
+import json
+import logging
+import os
+from datetime import datetime, timezone
+from typing import Generator
+
+from sqlalchemy import Engine, text
+from sqlalchemy.pool import StaticPool
+from sqlmodel import Field, Session, SQLModel, create_engine, select
+
+from app.models import Paper
+
+logger = logging.getLogger(__name__)
+
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///data/paperwatch.db")
+
+_engine: Engine | None = None
+
+
+# ──────────────────────────────────────────────
+# Table definitions
+# ──────────────────────────────────────────────
+
+class UserDB(SQLModel, table=True):
+    __tablename__ = "users"
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(unique=True, index=True)
+    email: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class TopicDB(SQLModel, table=True):
+    __tablename__ = "topics"
+
+    id: int | None = Field(default=None, primary_key=True)
+    name: str = Field(unique=True, index=True)
+    config_yaml: str = ""
+    is_lab_topic: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class PaperDB(SQLModel, table=True):
+    __tablename__ = "papers"
+
+    id: int | None = Field(default=None, primary_key=True)
+    source: str
+    source_id: str = Field(unique=True, index=True)
+    title: str
+    abstract: str | None = None
+    authors: str = "[]"  # JSON-encoded list[str]
+    published_date: str | None = None
+    journal: str | None = None
+    doi: str | None = None
+    url: str | None = None
+    score: float = 0.0
+    # JSON-encoded list[dict] — lab papers this one cites (lab-watch only), each
+    # {"title", "authors", "published_date"}
+    cited_lab_works: str = "[]"
+    # Set by app/fulltext.py's verification pass — see app/models.py::Paper
+    evidence_tier: str | None = None
+    evidence_snippet: str | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ProfileDB(SQLModel, table=True):
+    __tablename__ = "profiles"
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id", index=True)
+    name: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    last_fetched_at: datetime | None = None
+
+
+class UserTopicSubscription(SQLModel, table=True):
+    __tablename__ = "user_topic_subscriptions"
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id")
+    topic_id: int = Field(foreign_key="topics.id")
+    profile_id: int | None = Field(default=None, foreign_key="profiles.id", index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    term_boosts: str = "{}"  # JSON dict: term → float adjustment
+
+
+class PaperTopicLink(SQLModel, table=True):
+    __tablename__ = "paper_topic_links"
+
+    id: int | None = Field(default=None, primary_key=True)
+    paper_id: int = Field(foreign_key="papers.id", index=True)
+    topic_id: int = Field(foreign_key="topics.id", index=True)
+    profile_id: int | None = Field(default=None, foreign_key="profiles.id", index=True)
+
+
+class PresetDB(SQLModel, table=True):
+    __tablename__ = "presets"
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int | None = Field(default=None, foreign_key="users.id")
+    name: str
+    description: str = ""
+    include_any: str = "[]"
+    include_all: str = "[]"
+    exclude: str = "[]"
+    boost_authors: str = "[]"
+    boost_venues: str = "[]"
+    is_builtin: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class Feedback(SQLModel, table=True):
+    __tablename__ = "feedback"
+
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="users.id")
+    paper_id: int = Field(foreign_key="papers.id")
+    signal: str  # "upvote" | "flag"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class DigestStateDB(SQLModel, table=True):
+    """Single-row marker: when the citations page was last built.
+
+    Lets app/citations_page.py tell "new since last digest" (created_at
+    after this) apart from "new this month" (just a recent published_date) —
+    see get_last_digest_build/set_last_digest_build below.
+    """
+    __tablename__ = "digest_state"
+
+    id: int | None = Field(default=None, primary_key=True)
+    last_built_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+# ──────────────────────────────────────────────
+# Engine / session management
+# ──────────────────────────────────────────────
+
+def _run_migrations(engine: Engine) -> None:
+    """Apply schema migrations that create_all can't handle."""
+    alter_migrations = [
+        "ALTER TABLE user_topic_subscriptions ADD COLUMN profile_id INTEGER REFERENCES profiles(id)",
+        "ALTER TABLE paper_topic_links ADD COLUMN profile_id INTEGER REFERENCES profiles(id)",
+        "ALTER TABLE profiles ADD COLUMN last_fetched_at DATETIME",
+        "ALTER TABLE user_topic_subscriptions ADD COLUMN term_boosts TEXT DEFAULT '{}'",
+        "ALTER TABLE papers ADD COLUMN cited_lab_works TEXT DEFAULT '[]'",
+        "ALTER TABLE papers ADD COLUMN evidence_tier TEXT",
+        "ALTER TABLE papers ADD COLUMN evidence_snippet TEXT",
+    ]
+    with engine.connect() as conn:
+        for sql in alter_migrations:
+            try:
+                conn.execute(text(sql))
+                conn.commit()
+            except Exception:
+                conn.rollback()
+
+        # Make users.email nullable (SQLite requires table recreation)
+        try:
+            # Check if email is still NOT NULL
+            result = conn.execute(text("PRAGMA table_info(users)")).fetchall()
+            email_col = [r for r in result if r[1] == "email"]
+            if email_col and email_col[0][3] == 1:  # notnull=1
+                conn.execute(text("""
+                    CREATE TABLE users_new (
+                        id INTEGER PRIMARY KEY,
+                        name VARCHAR UNIQUE NOT NULL,
+                        email VARCHAR,
+                        created_at DATETIME NOT NULL
+                    )
+                """))
+                conn.execute(text("INSERT INTO users_new SELECT * FROM users"))
+                conn.execute(text("DROP TABLE users"))
+                conn.execute(text("ALTER TABLE users_new RENAME TO users"))
+                conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_name ON users (name)"))
+                conn.commit()
+        except Exception:
+            conn.rollback()
+
+
+def init_db(url: str | None = None) -> Engine:
+    """Create the engine and all tables. Returns the engine."""
+    global _engine
+    resolved = url or DATABASE_URL
+    if resolved == "sqlite://":
+        # In-memory SQLite: share a single connection across threads
+        _engine = create_engine(
+            resolved,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+    else:
+        _engine = create_engine(resolved)
+    SQLModel.metadata.create_all(_engine)
+    _run_migrations(_engine)
+
+    # Enable WAL mode for SQLite (better concurrent read performance)
+    if "sqlite" in resolved:
+        with _engine.connect() as conn:
+            conn.execute(text("PRAGMA journal_mode=WAL"))
+            conn.commit()
+
+    return _engine
+
+
+def get_engine() -> Engine:
+    """Return the engine, initialising if needed."""
+    if _engine is None:
+        init_db()
+    return _engine
+
+
+def get_session() -> Generator[Session, None, None]:
+    """Yield a SQLModel session. Use as a FastAPI dependency or context manager."""
+    if _engine is None:
+        init_db()
+    with Session(_engine) as session:
+        yield session
+
+
+# ──────────────────────────────────────────────
+# Storage helpers (replacing app/storage.py)
+# ──────────────────────────────────────────────
+
+def is_seen(session: Session, source_id: str) -> bool:
+    """Check if a paper with this source_id exists in the DB."""
+    stmt = select(PaperDB).where(PaperDB.source_id == source_id)
+    return session.exec(stmt).first() is not None
+
+
+def get_unseen_papers(session: Session, papers: list[Paper]) -> list[Paper]:
+    """Return only papers whose source_id is not already in the DB."""
+    return [p for p in papers if not is_seen(session, p.source_id)]
+
+
+def get_last_digest_build(session: Session) -> datetime | None:
+    """When the citations page was last built, or None if it never has been."""
+    row = session.get(DigestStateDB, 1)
+    return row.last_built_at if row else None
+
+
+def set_last_digest_build(session: Session, when: datetime) -> None:
+    """Record this as the new cutoff for 'new since last digest'."""
+    row = session.get(DigestStateDB, 1)
+    if row:
+        row.last_built_at = when
+    else:
+        row = DigestStateDB(id=1, last_built_at=when)
+    session.add(row)
+    session.commit()
+
+
+def _upsert_paper(session: Session, paper: Paper) -> PaperDB:
+    """Insert a paper into the DB, or update score if higher.
+
+    `cited_lab_works` only exists on LabPaper (lab-watch); plain Paper has none.
+    """
+    cited_works = getattr(paper, "cited_lab_works", None) or []
+    existing = session.exec(
+        select(PaperDB).where(PaperDB.source_id == paper.source_id)
+    ).first()
+    if existing:
+        # Update score if the new one is higher
+        if paper.score > (existing.score or 0):
+            existing.score = paper.score
+            if paper.evidence_tier:
+                existing.evidence_tier = paper.evidence_tier
+                existing.evidence_snippet = paper.evidence_snippet
+            session.add(existing)
+        if cited_works:
+            existing_works = json.loads(existing.cited_lab_works or "[]")
+            by_title = {w["title"]: w for w in existing_works}
+            for w in cited_works:
+                by_title.setdefault(w["title"], w)
+            merged = list(by_title.values())
+            if merged != existing_works:
+                existing.cited_lab_works = json.dumps(merged)
+                session.add(existing)
+        return existing
+    row = PaperDB(
+        source=paper.source,
+        source_id=paper.source_id,
+        title=paper.title,
+        abstract=paper.abstract,
+        authors=json.dumps(paper.authors),
+        published_date=paper.published_date,
+        journal=paper.journal,
+        doi=paper.doi,
+        url=paper.url,
+        score=paper.score,
+        cited_lab_works=json.dumps(cited_works),
+        evidence_tier=paper.evidence_tier,
+        evidence_snippet=paper.evidence_snippet,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def mark_seen(
+    session: Session,
+    papers: list[Paper],
+    topic_id: int | None = None,
+    profile_id: int | None = None,
+) -> None:
+    """Insert all papers (and their alt_ids) into the DB as seen.
+
+    If topic_id is provided, also creates paper-topic links.
+    """
+    for paper in papers:
+        row = _upsert_paper(session, paper)
+        # Link paper to topic if provided
+        if topic_id and row.id:
+            existing_link = session.exec(
+                select(PaperTopicLink).where(
+                    PaperTopicLink.paper_id == row.id,
+                    PaperTopicLink.topic_id == topic_id,
+                    PaperTopicLink.profile_id == profile_id,
+                )
+            ).first()
+            if not existing_link:
+                session.add(PaperTopicLink(
+                    paper_id=row.id, topic_id=topic_id, profile_id=profile_id,
+                ))
+        # Also mark alt_ids so deduped variants don't resurface
+        for alt_id in paper.alt_ids:
+            if not is_seen(session, alt_id):
+                session.add(PaperDB(
+                    source=alt_id.split(":")[0] if ":" in alt_id else "unknown",
+                    source_id=alt_id,
+                    title=paper.title,
+                    score=paper.score,
+                ))
+    session.commit()

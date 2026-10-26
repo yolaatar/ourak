@@ -1,0 +1,148 @@
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: var(--space-4);
+  transition: border-color 200ms ease;
+}
+
+.card:hover {
+  border-color: #3d4155;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.badge[data-source="pubmed"] {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+
+.badge[data-source="arxiv"] {
+  background: rgba(234, 88, 12, 0.15);
+  color: #fb923c;
+}
+
+.badge[data-source="biorxiv"],
+.badge[data-source="medrxiv"] {
+  background: rgba(124, 58, 237, 0.15);
+  color: #a78bfa;
+}
+
+.badge[data-source="paperswithcode"] {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+}
+
+.badge[data-source="semantic_scholar"] {
+  background: rgba(156, 163, 175, 0.15);
+  color: #9ca3af;
+}
+
+.date {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.title {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-bottom: var(--space-1);
+}
+
+.title a {
+  color: var(--color-text-primary);
+}
+
+.title a:hover {
+  color: var(--color-accent);
+}
+
+.authors {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.abstract {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.showMore {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 12px;
+  padding: 0;
+  margin-top: var(--space-1);
+}
+
+.showMore:hover {
+  text-decoration: underline;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-3);
+}
+
+.score {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.feedbackButtons {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.feedbackBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  transition: all 200ms ease;
+}
+
+.feedbackBtn:hover {
+  border-color: #3d4155;
+  color: var(--color-text-primary);
+}
+
+.feedbackBtn[data-active="true"] {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: rgba(59, 130, 246, 0.15);
+}
+
+.feedbackBtn[data-signal="flag"][data-active="true"] {
+  border-color: var(--color-warning);
+  color: var(--color-warning);
+  background: rgba(245, 158, 11, 0.15);
+}
