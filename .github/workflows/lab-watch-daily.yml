@@ -1,0 +1,69 @@
+name: Lab Watch (Daily)
+
+on:
+  schedule:
+    # Daily 12:00 UTC — authored papers only, skips the citation pipeline.
+    # Staggered an hour before the weekly full run (lab-watch.yml, Mondays
+    # 13:00 UTC) so the two never race for the shared state branch.
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Print results in the job log only (no Slack post, no state update)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write  # push the seen-papers DB to the state branch
+
+concurrency: lab-watch  # same group as lab-watch.yml: shared state, so never run both at once
+
+env:
+  STATE_BRANCH: lab-watch-state
+  DATABASE_URL: sqlite:///data/lab_watch.db
+
+jobs:
+  lab-watch-daily:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # The DB of already-posted papers lives on its own branch so main stays clean
+      - name: Restore seen-papers state
+        run: |
+          mkdir -p data
+          if git fetch --depth 1 origin "$STATE_BRANCH:refs/remotes/origin/$STATE_BRANCH"; then
+            git show "origin/$STATE_BRANCH:lab_watch.db" > data/lab_watch.db
+          else
+            echo "No state branch yet, starting fresh"
+          fi
+
+      - name: Run lab watcher (authored only)
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          OPENALEX_EMAIL: ${{ secrets.OPENALEX_EMAIL }}
+          OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
+        run: python -m app.lab_watch --authored-only ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      # Force-push a single commit: only the latest DB is kept, so the repo
+      # doesn't accumulate a copy of the binary file every day
+      - name: Save seen-papers state
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          cp data/lab_watch.db "$RUNNER_TEMP/lab_watch.db"
+          git checkout -q --orphan "$STATE_BRANCH"
+          git rm -rq --cached .
+          cp "$RUNNER_TEMP/lab_watch.db" lab_watch.db
+          git add lab_watch.db
+          git commit -qm "Lab watch state"
+          git push -q --force origin "$STATE_BRANCH"
