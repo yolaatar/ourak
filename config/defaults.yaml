@@ -1,0 +1,12 @@
+days_back: 30
+max_results_per_source: 50
+top_k: 12
+summarize: true
+delivery: console
+
+# Borderline score band that triggers a full-text verification check
+# (app/fulltext.py) instead of trusting the abstract — see app/scoring.py.
+evidence_band: [30, 65]
+# Cap on full-text fetches per topic per run (Unpaywall/Europe PMC calls,
+# each a few seconds — bounds run latency and API load)
+max_fulltext_checks: 5
