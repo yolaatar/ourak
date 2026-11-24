@@ -1,0 +1,14 @@
+# Paste titles + abstracts of NOISE papers (matched but irrelevant), one per block.
+# Separate blocks with a blank line. Delete these comments before running.
+
+Carotid Revascularization and Hemispheric White Matter Disease Progression
+Carotid revascularization prevents ipsilateral ischemic stroke in high-grade stenosis, but its effect on hemispheric white matter disease progression is not known. We conducted a longitudinal study of patients who underwent carotid endarterectomy or stenting and measured white matter lesion volume on serial MRI.
+
+CT Radiomic Features of the Crystalline Lens and Association with Age, Hypertension and Cerebral White Matter Lesions
+Radiomic analyses have been extensively explored in oncologic imaging and more recently in neuroimaging. However, radiomic characterization of the crystalline lens using computed tomography has not been studied. We investigated CT-derived radiomic features of the crystalline lens in relation to age, hypertension, and white matter lesion burden.
+
+Carbon black and hydrogen production from methane pyrolysis
+Methane pyrolysis is a promising route to co-produce hydrogen and carbon black while avoiding emissions associated with steam-methane reforming. We present shock tube experiments with integrated gas and particle diagnostics and kinetic models for carbon black particle formation.
+
+Unlocking nanoscale microstructural detail in aluminium alloys through differential phase contrast segmentation in STEM
+Differential phase contrast imaging in scanning transmission electron microscopy maps projected electric fields through the phase sensitivity of segmented low-angle detectors. We demonstrate rapid segmentation of nanoclusters, precipitates, and dislocations in aluminium alloys using HSV decomposition.

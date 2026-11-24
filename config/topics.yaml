@@ -1,0 +1,237 @@
+topics:
+  - name: axon-segmentation-em
+    include_any:
+      # Core task
+      - axon segmentation
+      - myelin segmentation
+      - neurite segmentation
+      - axon tracing
+      - axon reconstruction
+      - neural reconstruction
+      - connectome reconstruction
+      - neural circuit reconstruction
+      - white matter segmentation
+      - myelinated axon
+      # EM modalities
+      - FIB-SEM
+      - SBEM
+      - serial block-face
+      - serial section electron microscopy
+      - volume electron microscopy
+      - 3D electron microscopy
+      - array tomography
+      - focused ion beam scanning electron
+      - transmission electron microscopy neural
+      - electron microscopy white matter
+      # Biological structures
+      - myelin sheath
+      - axon morphometry
+      - axon diameter
+      - g-ratio
+      - oligodendrocyte segmentation
+      - periaxonal space
+      - Ranvier node
+      - white matter ultrastructure
+      - corpus callosum ultrastructure
+      # ML task variants
+      - volumetric segmentation neural
+      - dense reconstruction connectomics
+      - instance segmentation neuron
+      - panoptic segmentation EM
+      - automated segmentation connectomics
+      - EM segmentation
+      - electron microscopy segmentation
+      - connectomics segmentation
+      - proofreading connectome
+      # Architectures and methods
+      - Flood Filling Networks
+      - nnU-Net segmentation
+      - 3D U-Net segmentation
+      - watershed neuron
+      - skeletonization axon
+      - agglomeration neuron
+      # Known tools and papers
+      - AxonDeepSeg
+      - DeepACSON
+      - ACSON
+      - gACSON
+      # Foundation models applied to EM
+      - Segment Anything microscopy
+      - SAM electron microscopy
+      - EM-SAM
+      - MedSAM segmentation
+      # General connectomics
+      - connectomics
+      - synapse detection
+      - dendritic spine segmentation
+    include_all: []
+    exclude:
+      # MRI / clinical noise
+      - MRI
+      - fMRI
+      - " CT "
+      - clinical trial
+      - stroke
+      - radiosurgery
+      - tractography
+      - white matter lesion
+      - white matter hyperintens
+      - Alzheimer
+      - dementia
+      - Parkinson
+      - epilepsy
+      - carotid
+      - tumor
+      - glioma
+      - cancer
+      - biopsy
+      - patholog
+      # Non-neural biology
+      - retina
+      - retinal
+      - plant
+      - cardiac
+      - ecg
+      - electrocardiogram
+      - liver
+      - kidney
+      - lung
+      - skin lesion
+      # Non-biological EM
+      - seismic
+      - alloy
+      - aluminium
+      - carbon black
+      - methane
+      - material science
+      - semiconductor
+      - nanomaterial
+      - polymer
+    boost_authors:
+      - Cohen-Adad
+      - Duval
+      - Zaimi
+      - Lichtman
+      - Helmstaedter
+      - Seung
+      - Denk
+      - Moen
+      - Knott
+    boost_venues:
+      - Nature Methods
+      - Nature Neuroscience
+      - eLife
+      - MICCAI
+      - Medical Image Analysis
+      - IEEE Transactions on Medical Imaging
+      - Neuron
+      - Cell
+      - Frontiers in Neuroanatomy
+      - Journal of Neuroscience Methods
+      - ISBI
+      - MIDL
+    # Papers this research builds on — a paper citing one of these is
+    # relevant independent of keyword overlap (see app/sources/openalex_discovery.py)
+    seed_works:
+      - W2765232463  # AxonDeepSeg: automatic axon and myelin segmentation from microscopy data
+
+  - name: spinal-cord-mri-segmentation
+    description: Spinal cord MRI segmentation methods and tools
+    include_any:
+      - spinal cord segmentation
+      - spinal cord MRI
+      - SCT spinal cord toolbox
+      - sct_deepseg
+      - contrast-agnostic segmentation
+      - spinal cord cross-sectional area
+      - spinal cord atrophy
+      - cervical spinal cord
+      - intramedullary segmentation
+      - spinal cord gray matter segmentation
+      - spinal cord white matter segmentation
+      - PAM50
+      - spine generic
+      - spinal cord centerline
+    include_all: []
+    exclude:
+      - vertebra detection only
+      - lumbar spine surgery
+      - plant
+      - retina
+      - cardiac
+    boost_authors: []
+    boost_venues:
+      - NeuroImage
+      - Spinal Cord
+      - Imaging Neuroscience
+      - Radiology Artificial Intelligence
+      - Scientific Reports
+    seed_works:
+      - W2528727157  # SCT: Spinal Cord Toolbox, an open-source software for processing spinal cord MRI data
+
+  - name: spinal-cord-lesion-ms
+    description: Spinal cord lesion detection and MS-related imaging
+    include_any:
+      - spinal cord lesion
+      - multiple sclerosis spinal cord
+      - intramedullary lesion
+      - MS lesion segmentation
+      - spinal cord injury MRI
+      - spinal cord compression
+      - degenerative cervical myelopathy
+      - spinal cord lesion detection
+      - lesion burden spinal cord
+      - SCIseg
+      - spinal cord demyelination
+      - T2 hyperintensity spinal cord
+      - spinal cord biomarker
+    include_all:
+      - segmentation
+    exclude:
+      - brain lesion only
+      - retinal lesion
+      - skin lesion
+      - cardiac
+      - surgical planning only
+    boost_authors: []
+    boost_venues:
+      - NeuroImage
+      - Multiple Sclerosis Journal
+      - Imaging Neuroscience
+      - AJNR
+      - Radiology Artificial Intelligence
+
+  - name: spinal-cord-quantitative-mri
+    description: Quantitative MRI techniques for spinal cord microstructure
+    include_any:
+      - quantitative MRI spinal cord
+      - spinal cord diffusion MRI
+      - spinal cord magnetization transfer
+      - spinal cord DTI
+      - spinal cord microstructure
+      - spinal cord fMRI
+      - spinal cord template registration
+      - spinal cord white matter tract
+      - PAM50 template
+      - spine generic protocol
+      - spinal cord T2 star
+      - spinal cord myelin water
+      - spinal cord axon morphometry MRI
+      - spinal cord MRI biomarker
+      - spinal cord g-ratio MRI
+    include_all: []
+    exclude:
+      - brain only
+      - EEG
+      - PET
+      - surgical
+      - vertebra fracture
+    boost_authors: []
+    boost_venues:
+      - NeuroImage
+      - Magnetic Resonance in Medicine
+      - Imaging Neuroscience
+      - Scientific Data
+      - Journal of Neuroscience
+    seed_works:
+      - W3194760139  # Open-access quantitative MRI data of the spinal cord (spine-generic)
